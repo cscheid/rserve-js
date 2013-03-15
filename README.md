@@ -11,4 +11,8 @@ You will need node.js to make changes to the library:
     $ cd rserve-js
     $ npm install
 
+## Dependencies
+
+rserve-js requires [Underscore.js](http://underscorejs.org).
+
 
