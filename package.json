@@ -1,0 +1,9 @@
+{
+  "name": "rserve-js",
+  "version": "0.0.1",
+  "description": "rserve-js provides a javascript implementation of the websocket Rserve protocol",
+  "keywords": [ "rserve", "websockets" ],
+  "dependencies": {
+    "uglify-js": "1.2.3"
+  }
+}
