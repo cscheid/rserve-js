@@ -410,11 +410,6 @@ function reader(m)
             this.offset += length;
             return this.msg.make(Float64Array, old_offset, length);
         },
-        // read_bool_vector: function(length) {
-        //     var old_offset = this.offset;
-        //     this.offset += length;
-        //     return this.msg.make(Uint8Array, old_offset, length);
-        // },
 
         //////////////////////////////////////////////////////////////////////
 
@@ -439,10 +434,7 @@ function reader(m)
         read_bool_array: function(attributes, length) {
             var l2 = this.read_int();
             var s = this.read_stream(length-4);
-            var a = s.make(Uint8Array).subarray(0, l2); // new Uint8Array(s, 0, l2);
-            // var result = [];
-            // for (var i=0; i<l2; ++i)
-            //     result[i] = !!a[i];
+            var a = s.make(Uint8Array).subarray(0, l2);
             return [Robj.bool_array(a, attributes), length];
         },
 
@@ -504,7 +496,6 @@ function reader(m)
     that.read_symname      = sl(that.read_string,        Robj.symbol);
     that.read_int_array    = sl(that.read_int_vector,    Robj.int_array);
     that.read_double_array = sl(that.read_double_vector, Robj.double_array);
-    // that.read_bool_array   = sl(that.read_bool_vector,   Robj.bool_array);
 
     handlers[Rsrv.XT_NULL]         = that.read_null;
     handlers[Rsrv.XT_VECTOR]       = that.read_vector;
