@@ -1,4 +1,16 @@
 (function(global) {
+    if (global.WebSocket === undefined) {
+        if (global.MozWebSocket)
+            global.WebSocket = global.MozWebSocket;
+        else {
+            throw "WebSocket support not found";
+        }
+    }
+})(this);
+// thank you ie9 for not giving me a dataview. /s
+//////////////////////////////////////////////////////////////////////////////
+
+(function(global) {
     var _is_little_endian;
 
     (function() {
@@ -81,6 +93,10 @@
         global.DataView = MyDataView;
     }
 })(this);
+// we want an endian aware dataview mostly because ARM can be big-endian, and
+// that might put us in trouble wrt handheld devices.
+//////////////////////////////////////////////////////////////////////////////
+
 (function(global) {
     var _is_little_endian;
 
