@@ -238,7 +238,7 @@ var Rsrv = {
     ERR_session_busy   : 0x50,
     ERR_detach_failed  : 0x51,
 
-    CMD_long             : 0x001,
+    CMD_login            : 0x001,
     CMD_voidEval         : 0x002,
     CMD_eval             : 0x003,
     CMD_shutdown         : 0x004,
@@ -263,7 +263,6 @@ var Rsrv = {
     CMD_serEval          : 0xf5,
     CMD_serAssign        : 0xf6,
     CMD_serEEval         : 0xf7,
-
 
     DT_INT        : 1,
     DT_CHAR       : 2,
@@ -703,7 +702,7 @@ Rserve = {
         socket.binaryType = 'arraybuffer';
 
         var received_handshake = false;
-        var value_callbacks = [];
+        var callbacks = [];
 
         var result;
         var command_counter = 0;
@@ -732,6 +731,7 @@ Rserve = {
         };
 
         socket.onmessage = function(msg) {
+            console.log("on message", msg);
             if (!received_handshake) {
                 hand_shake(msg);
                 return;
@@ -749,13 +749,15 @@ Rserve = {
 
                 if (v === null) {
                     // there's no data, but there's no error either: ignore the message
+                    var callback = callbacks.shift();
+                    callback();
                     return;
                 }
                 var type = v[1];
                 v = v[0];
                 switch (type) {
                 case Rsrv.RESP_OK:
-                    var value_callback = value_callbacks.shift();
+                    var value_callback = callbacks.shift();
                     value_callback(v);
                     break;
                 case Rsrv.OOB_SEND: 
@@ -767,42 +769,119 @@ Rserve = {
             }
         };
 
+
+        var _cmd = function(command, buffer, k) {
+            k = k || function() {};
+            console.log("command", command, buffer, k);
+            callbacks.push(k);
+            var big_buffer = new ArrayBuffer(16 + buffer.byteLength);
+            var view = new EndianAwareDataView(big_buffer);
+            view.setInt32(0, command);
+            view.setInt32(4, buffer.byteLength);
+            view.setInt32(8, 0);
+            view.setInt32(12, 0);
+            for (var i=0; i<buffer.byteLength; ++i)
+                view.setUint8(16+i, buffer[i]);
+            socket.send(buffer);
+        };
+        var _encode_string = function(str) {
+            var result = new ArrayBuffer(str.length + 5);
+            var view = new EndianAwareDataView(result);
+            view.setInt32(0, Rsrv.DT_STRING);
+            for (var i=0; i<str.length; ++i)
+                view.setInt8(4+i, str.charCodeAt(i));
+            view.setInt8(4+str.length, 0);
+            return result;
+        };
+
         result = {
             close: function() {
                 socket.close();
             },
-            
-            login: function(auth_string) {
-                var command = auth_string;
-                var buffer = new ArrayBuffer(command.length + 21);
-                var view = new EndianAwareDataView(buffer);
-                view.setInt32(0,  1);
-                view.setInt32(4,  5 + command.length);
-                view.setInt32(8,  0);
-                view.setInt32(12, 0);
-                view.setInt32(16, 4 + ((1 + command.length) << 8));
-                for (var i=0; i<command.length; ++i) {
-                    view.setUint8(20 + i, command.charCodeAt(i));
-                }
-                view.setUint8(buffer.byteLength - 1, 0);
-                socket.send(buffer);
+
+            login: function(command, k) {
+                _cmd(Rsrv.CMD_login, _encode_string(command), k);
+                // k = k || function() {};
+                // callbacks.push(k);
+                // var buffer = new ArrayBuffer(command.length + 21);
+                // var view = new EndianAwareDataView(buffer);
+                // var null_terminated_length = 1 + command.length;
+                // view.setInt32(0,  Rsrv.CMD_login);
+                // view.setInt32(4,  4 + null_terminated_length);
+                // view.setInt32(8,  0);
+                // view.setInt32(12, 0);
+                // view.setInt32(16, Rsrv.DT_STRING + (null_terminated_length << 8));
+                // for (var i=0; i<command.length; ++i) {
+                //     view.setUint8(20 + i, command.charCodeAt(i));
+                // }
+                // view.setUint8(buffer.byteLength - 1, 0);
+                // socket.send(buffer);
             },
             eval: function(command, k) {
-                k = k || function() {};
-                value_callbacks.push(k);
-                var buffer = new ArrayBuffer(command.length + 21);
-                var view = new EndianAwareDataView(buffer);
-                view.setInt32(0,  3);
-                view.setInt32(4,  5 + command.length);
-                view.setInt32(8,  0);
-                view.setInt32(12, 0);
-                view.setInt32(16, 4 + ((1 + command.length) << 8));
-                for (var i=0; i<command.length; ++i) {
-                    view.setUint8(20 + i, command.charCodeAt(i));
-                }
-                view.setUint8(buffer.byteLength - 1, 0);
-                socket.send(buffer);
+                _cmd(Rsrv.CMD_eval, _encode_string(command), k);
+                // k = k || function() {};
+                // callbacks.push(k);
+                // var buffer = new ArrayBuffer(command.length + 21);
+                // var view = new EndianAwareDataView(buffer);
+                // var null_terminated_length = 1 + command.length;
+                // view.setInt32(0,  Rsrv.CMD_eval);
+                // view.setInt32(4,  4 + null_terminated_length);
+                // view.setInt32(8,  0);
+                // view.setInt32(12, 0);
+                // view.setInt32(16, Rsrv.DT_STRING + (null_terminated_length << 8));
+                // for (var i=0; i<command.length; ++i) {
+                //     view.setUint8(20 + i, command.charCodeAt(i));
+                // }
+                // view.setUint8(buffer.byteLength - 1, 0);
+                // socket.send(buffer);
+            },
+            createFile: function(command, k) {
+                _cmd(Rsrv.CMD_createFile, _encode_string(command), k);
+                // k = k || function() {};
+                // callbacks.push(k);
+                // var buffer = new ArrayBuffer(command.length + 21);
+                // var view = new EndianAwareDataView(buffer);
+                // var null_terminated_length = 1 + command.length;
+                // view.setInt32(0,  Rsrv.CMD_createFile);
+                // view.setInt32(4,  4 + null_terminated_length);
+                // view.setInt32(8,  0);
+                // view.setInt32(12, 0);
+                // view.setInt32(16, Rsrv.DT_STRING + (null_terminated_length << 8));
+                // for (var i=0; i<command.length; ++i) {
+                //     view.setUint8(20 + i, command.charCodeAt(i));
+                // }
+                // view.setUint8(buffer.byteLength - 1, 0);
+                // socket.send(buffer);
+            },
+            writeFile: function(chunk, k) {
+                _cmd(Rsrv.CMD_writeFile, chunk, k);
+                // k = k || function() {};
+                // callbacks.push(k);
+                // var buffer = new ArrayBuffer(chunk.length + 20);
+                // var view = new EndianAwareDataView(buffer);
+                // view.setInt32(0,  Rsrv.CMD_writeFile);
+                // view.setInt32(4,  4 + chunk.length);
+                // view.setInt32(8,  0);
+                // view.setInt32(12, 0);
+                // view.setInt32(16, Rsrv.DT_BYTESTREAM + (chunk.length << 8));
+                // for (var i=0; i<chunk.length; ++i) {
+                //     view.setUint8(20 + i, chunk[i]);
+                // }
+                // socket.send(buffer);
+            },
+            closeFile: function(k) {
+                _cmd(Rsrv.CMD_writeFile, new ArrayBuffer(0), k);
+                // k = k || function() {};
+                // callbacks.push(k);
+                // var buffer = new ArrayBuffer(16);
+                // var view = new EndianAwareDataView(buffer);
+                // view.setInt32(0,  Rsrv.CMD_closeFile);
+                // view.setInt32(4,  0);
+                // view.setInt32(8,  0);
+                // view.setInt32(12, 0);
+                // socket.send(buffer);
             }
+
         };
         return result;
     }
