@@ -29,6 +29,7 @@ var Rsrv = {
     RESP_OK            : 0x10000 | 0x0001,
     RESP_ERR           : 0x10000 | 0x0002,
     OOB_SEND           : 0x30000 | 0x1000,
+    OOB_MSG            : 0x30000 | 0x2000,
     ERR_auth_failed    : 0x41,
     ERR_conn_broken    : 0x42,
     ERR_inv_cmd        : 0x43,
@@ -328,13 +329,17 @@ function reader(m)
 function parse(msg)
 {
     var header = new Int32Array(msg, 0, 4);
-    if (header[0] !== Rsrv.RESP_OK && header[0] !== Rsrv.OOB_SEND) {
+    if (header[0] === Rsrv.RESP_ERR) {
         var status_code = header[0] >> 24;
         throw new RserveError("ERROR FROM R SERVER: " + (Rsrv.status_codes[status_code] || 
                                          status_code)
                + " " + header[0] + " " + header[1] + " " + header[2] + " " + header[3]
                + " " + msg.byteLength
                + " " + msg, status_code);
+    }
+
+    if (!_.contains([Rsrv.RESP_OK, Rsrv.OOB_SEND, Rsrv.OOB_MSG], header[0])) {
+        throw new RserveError("Unexpected response from RServe: " + header[0]);
     }
 
     var payload = my_ArrayBufferView(msg, 16, msg.byteLength - 16);
@@ -539,7 +544,6 @@ Rserve = {
         };
 
         socket.onmessage = function(msg) {
-            console.log(msg);
             if (!received_handshake) {
                 hand_shake(msg);
                 return;
@@ -571,17 +575,22 @@ Rserve = {
                 case Rsrv.OOB_SEND: 
                     opts.on_data && opts.on_data(v);
                     break;
+                case Rsrv.OOB_MSG:
+                    if (_.isUndefined(opts.on_oob_message)) {
+                        result.oob_response("No handler installed", true); // FIXME this should be an error signal of some sort
+                        return;
+                    }
+                    opts.on_oob_message(v, function(message, error) {
+                        result.oob_response(message, error);
+                    });
+                    break;
                 default:
                     throw new RserveError("Internal Error, parse returned unexpected type " + type, -1);
                 }
             }
         };
 
-
-        var _cmd = function(command, buffer, k) {
-            k = k || function() {};
-            console.log("command", command, buffer);
-            callbacks.push(k);
+        var _cmd_no_callback = function(command, buffer) {
             var big_buffer = new ArrayBuffer(16 + buffer.byteLength);
             var array_view = new Uint8Array(buffer);
             var view = new EndianAwareDataView(big_buffer);
@@ -594,6 +603,13 @@ Rserve = {
             socket.send(big_buffer);
             return big_buffer;
         };
+
+        var _cmd = function(command, buffer, k) {
+            k = k || function() {};
+            callbacks.push(k);
+            return _cmd_no_callback(command, buffer);
+        };
+
         var _encode_string = function(str) {
             var payload_length = str.length + 5;
             var result = new ArrayBuffer(payload_length);
@@ -614,6 +630,10 @@ Rserve = {
             },
             eval: function(command, k) {
                 _cmd(Rsrv.CMD_eval, _encode_string(command), k);
+            },
+            oob_response: function(command, error) {
+                _cmd_no_callback(error ? Rsrv.RESP_ERR : Rsrv.RESP_OK, 
+                                 _encode_string(command));
             },
             createFile: function(command, k) {
                 _cmd(Rsrv.CMD_createFile, _encode_string(command), k);
