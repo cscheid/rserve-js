@@ -277,20 +277,31 @@ function reader(m)
     });
 
     that.read_list = unfold(that.read_sexp);
+
+    function read_symbol_value_pairs(lst) {
+        var result = [];
+        for (var i=0; i<lst.length; i+=2) {
+            var value = lst[i], tag = lst[i+1];
+            if (tag.type === "symbol") {
+                result.push({ name: tag.value,
+                              value: value });
+            } else {
+                result.push({ name: null,
+                              value: value });
+            }
+        }
+        return result;
+    }
     that.read_list_tag = bind(that.read_list, function(lst) {
         return lift(function(attributes, length) {
-            var result = [];
-            for (var i=0; i<lst.length; i+=2) {
-                var value = lst[i], tag = lst[i+1];
-                if (tag.type === "symbol") {
-                    result.push({ name: tag.value,
-                                  value: value });
-                } else {
-                    result.push({ name: null,
-                                  value: value });
-                }
-            }
+            var result = read_symbol_value_pairs(lst);
             return Robj.tagged_list(result, attributes);
+        }, 0);
+    });
+    that.read_lang_tag = bind(that.read_list, function(lst) {
+        return lift(function(attributes, length) {
+            var result = read_symbol_value_pairs(lst);
+            return Robj.tagged_lang(result, attributes);
         }, 0);
     });
 
@@ -316,7 +327,7 @@ function reader(m)
     handlers[Rsrv.XT_LIST_NOTAG]   = that.read_list_no_tag;
     handlers[Rsrv.XT_LIST_TAG]     = that.read_list_tag;
     handlers[Rsrv.XT_LANG_NOTAG]   = that.read_lang_no_tag;
-    handlers[Rsrv.XT_LANG_TAG]     = that.read_list_tag;
+    handlers[Rsrv.XT_LANG_TAG]     = that.read_lang_tag;
     handlers[Rsrv.XT_VECTOR_EXP]   = that.read_vector_exp;
     handlers[Rsrv.XT_ARRAY_INT]    = that.read_int_array;
     handlers[Rsrv.XT_ARRAY_DOUBLE] = that.read_double_array;
@@ -369,18 +380,26 @@ function parse_payload(reader)
 }
 
 function make_basic(type, proto) {
+    proto = proto || {
+        json: function() { 
+            debugger;
+            throw "json() unsupported for type " + this.type;
+        }
+    };
+    var wrapped_proto = {
+        json: function() {
+            var result = proto.json.call(this);
+            result.r_type = type;
+            return result;
+        }
+    };
     return function(v, attrs) {
         function r_object() {
             this.type = type;
             this.value = v;
             this.attributes = attrs;
         }
-        r_object.prototype = proto || {
-            json: function() { 
-                debugger;
-                throw "json() unsupported for type " + this.type;
-            }
-        };
+        r_object.prototype = wrapped_proto;
         return new r_object();
     };
 }
@@ -470,14 +489,29 @@ Robj = {
             }
         }
     }),
-    tagged_lang: make_basic("tagged_lang"),
+    tagged_lang: make_basic("tagged_lang", {
+        json: function() {
+            var pair_vec = _.map(this.value, function(elt) { return [elt.name, elt.value.json()]; });
+            return pair_vec;
+        }
+    }),
     vector_exp: make_basic("vector_exp"),
     int_array: make_basic("int_array", {
         json: function() {
-            if (this.value.length === 1)
-                return this.value[0];
-            else
-                return this.value;
+            if(this.attributes && this.attributes.type==='tagged_list' 
+               && this.attributes.value[0].name==='levels'
+               && this.attributes.value[0].value.type==='string_array') {
+                var levels = this.attributes.value[0].value.value;
+                var arr = _.map(this.value, function(factor) { return levels[factor-1]; });
+                arr.levels = levels;
+                return arr;
+            }
+            else {
+                if (this.value.length === 1)
+                    return this.value[0];
+                else
+                    return this.value;
+            }
         }
     }),
     double_array: make_basic("double_array", {
