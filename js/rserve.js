@@ -16,6 +16,30 @@ function RserveError(message, status_code) {
 RserveError.prototype = Object.create(Error);
 RserveError.prototype.constructor = RserveError;
 
+function _encode_command(command, buffer) {
+    var big_buffer = new ArrayBuffer(16 + buffer.byteLength);
+    var array_view = new Uint8Array(buffer);
+    var view = new EndianAwareDataView(big_buffer);
+    view.setInt32(0, command);
+    view.setInt32(4, buffer.byteLength);
+    view.setInt32(8, 0);
+    view.setInt32(12, 0);
+    for (var i=0; i<buffer.byteLength; ++i)
+        view.setUint8(16+i, array_view[i]);
+    return big_buffer;
+};
+
+function _encode_string(str) {
+    var payload_length = str.length + 5;
+    var result = new ArrayBuffer(payload_length);
+    var view = new EndianAwareDataView(result);
+    view.setInt32(0, Rsrv.DT_STRING + (payload_length << 8));
+    for (var i=0; i<str.length; ++i)
+        view.setInt8(4+i, str.charCodeAt(i));
+    view.setInt8(4+str.length, 0);
+    return result;
+};
+
 var Rsrv = {
     PAR_TYPE: function(x) { return x & 255; },
     PAR_LEN: function(x) { return x >> 8; },
@@ -28,8 +52,8 @@ var Rsrv = {
     CMD_RESP           : 0x10000,
     RESP_OK            : 0x10000 | 0x0001,
     RESP_ERR           : 0x10000 | 0x0002,
-    OOB_SEND           : 0x30000 | 0x1000,
-    OOB_MSG            : 0x30000 | 0x2000,
+    OOB_SEND           : 0x20000 | 0x1000,
+    OOB_MSG            : 0x20000 | 0x2000,
     ERR_auth_failed    : 0x41,
     ERR_conn_broken    : 0x42,
     ERR_inv_cmd        : 0x43,
@@ -339,25 +363,35 @@ function reader(m)
 
 function parse(msg)
 {
+    var result = {};
     var header = new Int32Array(msg, 0, 4);
+    result.header = header[0];
+
     if (header[0] === Rsrv.RESP_ERR) {
         var status_code = header[0] >> 24;
-        throw new RserveError("ERROR FROM R SERVER: " + (Rsrv.status_codes[status_code] || 
+        result.ok = false;
+        result.status_code = status_code;
+        result.message = "ERROR FROM R SERVER: " + (Rsrv.status_codes[status_code] || 
                                          status_code)
                + " " + header[0] + " " + header[1] + " " + header[2] + " " + header[3]
                + " " + msg.byteLength
-               + " " + msg, status_code);
+               + " " + msg;
+        return result;
     }
 
     if (!_.contains([Rsrv.RESP_OK, Rsrv.OOB_SEND, Rsrv.OOB_MSG], header[0])) {
-        throw new RserveError("Unexpected response from RServe: " + header[0]);
+        result.ok = false;
+        result.message = "Unexpected response from RServe: " + header[0];
+        return result;
     }
-
+    result.ok = true;
     var payload = my_ArrayBufferView(msg, 16, msg.byteLength - 16);
     if (payload.length === 0)
-        return null;
-    var result = parse_payload(reader(payload));
-    return [result, header[0]];
+        result.payload = null;
+
+    var parsed_payload = parse_payload(reader(payload));
+    result.payload = parsed_payload;
+    return result;
 }
 
 function parse_payload(reader)
@@ -549,7 +583,6 @@ Rserve = {
         socket.binaryType = 'arraybuffer';
 
         var received_handshake = false;
-        var callbacks = [];
 
         var result;
         var command_counter = 0;
@@ -580,79 +613,73 @@ Rserve = {
         socket.onmessage = function(msg) {
             if (!received_handshake) {
                 hand_shake(msg);
+            } else if (typeof msg.data === 'string') {
+                opts.on_raw_string && opts.on_raw_string(msg.data);
                 return;
             }
-            if (typeof msg.data === 'string')
-                opts.on_raw_string && opts.on_raw_string(msg.data);
-            else {
-                var v;
-                try {
-                    v = parse(msg.data);
-                } catch (e) {
-                    handle_error(e.message, e.status_code);
-                    return;
-                }
-
-                if (v === null) {
-                    // there's no data, but there's no error either: ignore the message
-                    var callback = callbacks.shift();
-                    callback();
-                    return;
-                }
-                var type = v[1];
-                v = v[0];
-                switch (type) {
-                case Rsrv.RESP_OK:
-                    var value_callback = callbacks.shift();
-                    value_callback(v);
-                    break;
-                case Rsrv.OOB_SEND: 
-                    opts.on_data && opts.on_data(v);
-                    break;
-                case Rsrv.OOB_MSG:
-                    if (_.isUndefined(opts.on_oob_message)) {
-                        result.oob_response("No handler installed", true); // FIXME this should be an error signal of some sort
-                        return;
-                    }
-                    opts.on_oob_message(v, function(message, error) {
-                        result.oob_response(message, error);
+            var v = parse(msg.data);
+            if (!v.ok) {
+                handle_error(v.message, v.status_code);
+            } else if (v.header === Rsrv.RESP_OK) {
+                result_callback(v.payload);
+            } else if (v.header === Rsrv.OOB_SEND) {
+                opts.on_data && opts.on_data(v.payload);
+            } else if (v.header === Rsrv.OOB_MSG) {
+                if (_.isUndefined(opts.on_oob_message)) {
+                    _send_cmd_now(Rsrv.RESP_ERR | Rsrv.OOB_MSG, 
+                                  _encode_string("No handler installed"));
+                } else {
+                    in_oob_message = true;
+                    opts.on_oob_message(v.payload, function(message, error) {
+                        if (!in_oob_message) {
+                            handle_error("Don't call oob_message_handler more than once.");
+                            return;
+                        }
+                        in_oob_message = false;
+                        var header = Rsrv.OOB_MSG | 
+                            (error ? Rsrv.RESP_ERR : Rsrv.RESP_OK);
+                        _send_cmd_now(header, _encode_string(message));
+                        bump_queue();
                     });
-                    break;
-                default:
-                    throw new RserveError("Internal Error, parse returned unexpected type " + type, -1);
                 }
+            } else {
+                handle_error("Internal Error, parse returned unexpected type " + v.header, -1);
             }
         };
 
-        var _cmd_no_callback = function(command, buffer) {
-            var big_buffer = new ArrayBuffer(16 + buffer.byteLength);
-            var array_view = new Uint8Array(buffer);
-            var view = new EndianAwareDataView(big_buffer);
-            view.setInt32(0, command);
-            view.setInt32(4, buffer.byteLength);
-            view.setInt32(8, 0);
-            view.setInt32(12, 0);
-            for (var i=0; i<buffer.byteLength; ++i)
-                view.setUint8(16+i, array_view[i]);
+        function _send_cmd_now(command, buffer) {
+            var big_buffer = _encode_command(command, buffer);
             socket.send(big_buffer);
             return big_buffer;
         };
 
-        var _cmd = function(command, buffer, k) {
-            k = k || function() {};
-            callbacks.push(k);
-            return _cmd_no_callback(command, buffer);
+        var queue = [];
+        var in_oob_message = false;
+        var awaiting_result = false;
+        var result_callback;
+        function bump_queue() {
+            if (!result.running && queue.length) {
+                handle_error("Cannot send messages on a closed socket!", -1);
+            } else if (!awaiting_result && !in_oob_message && queue.length) {
+                var lst = queue.shift();
+                result_callback = lst[1];
+                awaiting_result = true;
+                socket.send(lst[0]);
+            }
+        }
+        function enqueue(buffer, k) {
+            queue.push([buffer, function(result) {
+                awaiting_result = false;
+                bump_queue();
+                k(result);
+            }]);
+            bump_queue();
         };
 
-        var _encode_string = function(str) {
-            var payload_length = str.length + 5;
-            var result = new ArrayBuffer(payload_length);
-            var view = new EndianAwareDataView(result);
-            view.setInt32(0, Rsrv.DT_STRING + (payload_length << 8));
-            for (var i=0; i<str.length; ++i)
-                view.setInt8(4+i, str.charCodeAt(i));
-            view.setInt8(4+str.length, 0);
-            return result;
+        function _cmd(command, buffer, k) {
+            k = k || function() {};
+            var big_buffer = _encode_command(command, buffer);
+            return enqueue(big_buffer, k);
         };
 
         result = {
@@ -664,10 +691,6 @@ Rserve = {
             },
             eval: function(command, k) {
                 _cmd(Rsrv.CMD_eval, _encode_string(command), k);
-            },
-            oob_response: function(command, error) {
-                _cmd_no_callback(error ? Rsrv.RESP_ERR : Rsrv.RESP_OK, 
-                                 _encode_string(command));
             },
             createFile: function(command, k) {
                 _cmd(Rsrv.CMD_createFile, _encode_string(command), k);
