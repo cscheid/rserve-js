@@ -244,8 +244,8 @@ var Rsrv = {
     CMD_RESP           : 0x10000,
     RESP_OK            : 0x10000 | 0x0001,
     RESP_ERR           : 0x10000 | 0x0002,
-    OOB_SEND           : 0x20000 | 0x1000,
-    OOB_MSG            : 0x20000 | 0x2000,
+    OOB_SEND           : 0x30000 | 0x1000,
+    OOB_MSG            : 0x30000 | 0x2000,
     ERR_auth_failed    : 0x41,
     ERR_conn_broken    : 0x42,
     ERR_inv_cmd        : 0x43,
@@ -578,11 +578,11 @@ function parse(msg)
     }
     result.ok = true;
     var payload = my_ArrayBufferView(msg, 16, msg.byteLength - 16);
-    if (payload.length === 0)
+    if (payload.length === 0) {
         result.payload = null;
-
-    var parsed_payload = parse_payload(reader(payload));
-    result.payload = parsed_payload;
+    } else {
+        result.payload = parse_payload(reader(payload));
+    }
     return result;
 }
 
@@ -799,13 +799,16 @@ Rserve = {
 
         socket.onclose = function(msg) {
             result.running = false;
+            result.closed = true;
             opts.on_close && opts.on_close(msg);
         };
 
         socket.onmessage = function(msg) {
             if (!received_handshake) {
                 hand_shake(msg);
-            } else if (typeof msg.data === 'string') {
+                return;
+            } 
+            if (typeof msg.data === 'string') {
                 opts.on_raw_string && opts.on_raw_string(msg.data);
                 return;
             }
@@ -850,7 +853,7 @@ Rserve = {
         var awaiting_result = false;
         var result_callback;
         function bump_queue() {
-            if (!result.running && queue.length) {
+            if (result.closed && queue.length) {
                 handle_error("Cannot send messages on a closed socket!", -1);
             } else if (!awaiting_result && !in_oob_message && queue.length) {
                 var lst = queue.shift();
@@ -875,6 +878,8 @@ Rserve = {
         };
 
         result = {
+            running: false,
+            closed: false,
             close: function() {
                 socket.close();
             },
