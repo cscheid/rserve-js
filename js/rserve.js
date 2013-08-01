@@ -704,7 +704,7 @@ Rserve = {
                 _cmd(Rsrv.CMD_writeFile, chunk, k);
             },
             closeFile: function(k) {
-                _cmd(Rsrv.CMD_writeFile, new ArrayBuffer(0), k);
+                _cmd(Rsrv.CMD_closeFile, new ArrayBuffer(0), k);
             }
         };
         return result;
