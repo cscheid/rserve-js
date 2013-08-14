@@ -3,8 +3,6 @@ JS_COMPILER = ./node_modules/uglify-js/bin/uglifyjs
 all: rserve.js rserve.min.js
 
 rserve.js: \
-	js/polyfill_websocket.js \
-	js/polyfill_dataview.js \
 	js/endian_aware_dataview.js \
 	js/rserve.js
 
