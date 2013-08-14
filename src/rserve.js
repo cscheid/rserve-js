@@ -7,15 +7,6 @@
 
 (function() {
 
-function RserveError(message, status_code) {
-    this.name = "RserveError";
-    this.message = message;
-    this.status_code = status_code;
-}
-
-RserveError.prototype = Object.create(Error);
-RserveError.prototype.constructor = RserveError;
-
 function _encode_command(command, buffer) {
     var length = buffer.byteLength;
     var big_buffer = new ArrayBuffer(16 + length);
@@ -168,7 +159,7 @@ var Rsrv = {
     dtop: function(x) { return x; },
     ptod: function(x) { return x; },
 
-    fixdcpy: function() { throw new RserveError("unimplemented", -1); },
+    fixdcpy: function() { throw new Rserve.RserveError("unimplemented", -1); },
 
     status_codes: {
         0x41 : "ERR_auth_failed"   ,
@@ -304,7 +295,7 @@ function reader(m)
                 l -= attr_result[1];
             }
             if (handlers[t] === undefined) {
-                throw new RserveError("Unimplemented " + t, -1);
+                throw new Rserve.RserveError("Unimplemented " + t, -1);
             } else {
                 var result = handlers[t].call(this, attributes, l);
                 return [result[0], total_read + result[1]];
@@ -430,7 +421,7 @@ function parse_payload(reader)
         var sexp = _[0], l2 = _[1];
         return { type: "sexp", value: sexp };
     } else
-        throw new RserveError("Bad type for parse? " + t + " " + l, -1);
+        throw new Rserve.RserveError("Bad type for parse? " + t + " " + l, -1);
 }
 
 function make_basic(type, proto) {
@@ -598,7 +589,7 @@ Rserve.create = function(opts) {
         var host = opts.host;
         var onconnect = opts.on_connect;
         var socket = new WebSocket(host);
-        var handle_error = opts.on_error || function(error) { throw new RserveError(error, -1); };
+        var handle_error = opts.on_error || function(error) { throw new Rserve.RserveError(error, -1); };
 
         var received_handshake = false;
 
