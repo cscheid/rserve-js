@@ -11,6 +11,7 @@ main.js:					\
 	src/endian_aware_dataview.js		\
 	src/rserve.js				\
 	src/error.js				\
+	src/write.js				\
 	src/_end.js				\
 	src/_end_node.js
 
@@ -22,6 +23,7 @@ rserve.js:					\
 	src/endian_aware_dataview.js		\
 	src/rserve.js				\
 	src/error.js				\
+	src/write.js				\
 	src/_end.js
 
 rserve.min.js: rserve.js Makefile

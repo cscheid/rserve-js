@@ -1,34 +1,36 @@
-/*
-
- RServe is a low-level communication layer between Javascript and a
- running RServe process on the other side, via Websockets. 
- 
- */
-
 (function() {
 
 function _encode_command(command, buffer) {
-    var length = buffer.byteLength;
-    var big_buffer = new ArrayBuffer(16 + length);
-    var array_view = new Uint8Array(buffer);
-    var view = new Rserve.EndianAwareDataView(big_buffer);
+    if (!_.isArray(buffer))
+        buffer = [buffer];
+    var length = _.reduce(buffer, 
+                          function(memo, val) {
+                              return memo + val.byteLength;
+                          }, 0),
+        big_buffer = new ArrayBuffer(16 + length),
+        view = new Rserve.EndianAwareDataView(big_buffer);
     view.setInt32(0, command);
     view.setInt32(4, length);
     view.setInt32(8, 0);
     view.setInt32(12, 0);
-    for (var i=0; i<length; ++i)
-        view.setUint8(16+i, array_view[i]);
+    var offset = 16;
+    _.each(buffer, function(b) {
+        var source_array = new Uint8Array(b);
+        for (var i=0; i<source_array.byteLength; ++i)
+            view.setUint8(offset+i, source_array[i]);
+        offset += b.byteLength;
+    });
     return big_buffer;
 };
 
 function _encode_string(str) {
-    var payload_length = str.length + 5;
+    var strl = ((str.length + 1) + 3) & ~3; // pad to 4-byte boundaries.
+    var payload_length = strl + 4;
     var result = new ArrayBuffer(payload_length);
     var view = new Rserve.EndianAwareDataView(result);
-    view.setInt32(0, Rserve.Rsrv.DT_STRING + (payload_length << 8));
+    view.setInt32(0, Rserve.Rsrv.DT_STRING + (strl << 8));
     for (var i=0; i<str.length; ++i)
         view.setInt8(4+i, str.charCodeAt(i));
-    view.setInt8(4+str.length, 0);
     return result;
 };
 
@@ -42,6 +44,20 @@ function _encode_bytes(bytes) {
         view.setInt8(4+i, bytes[i]);
     return result;
 };
+
+function _encode_value(value)
+{
+    var sz = Rserve.determine_size(value);
+    var buffer = new ArrayBuffer(sz + 4);
+    var view = Rserve.my_ArrayBufferView(buffer);
+    view.make(Rserve.EndianAwareDataView).setInt32(0, Rserve.Rsrv.DT_SEXP + (sz << 8));
+    Rserve.write_into_view(value, view.make(Rserve.EndianAwareDataView, 4, sz));
+    console.log("value: ", value);
+    console.log("type: ", Rserve.type_id(value), Rserve.Rsrv.XT_ARRAY_DOUBLE);
+    console.log("size: ", sz);
+    console.log("buffer: ", buffer);
+    return buffer;
+}
 
 Rserve.create = function(opts) {
     var host = opts.host;
@@ -181,6 +197,9 @@ Rserve.create = function(opts) {
         },
         closeFile: function(k) {
             _cmd(Rserve.Rsrv.CMD_closeFile, new ArrayBuffer(0), k, "");
+        },
+        set: function(key, value, k) {
+            _cmd(Rserve.Rsrv.CMD_setSEXP, [_encode_string(key), _encode_value(value)], k, "");
         }
     };
     return result;
