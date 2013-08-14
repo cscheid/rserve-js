@@ -5,160 +5,178 @@ Rserve = {};
 var _ = require('underscore');
 var WebSocket = require('ws');
 
-// we want an endian aware dataview mostly because ARM can be big-endian, and
-// that might put us in trouble wrt handheld devices.
-//////////////////////////////////////////////////////////////////////////////
-
 (function() {
-    var _is_little_endian;
 
-    (function() {
-        var x = new ArrayBuffer(4);
-        var bytes = new Uint8Array(x),
-        words = new Uint32Array(x);
-        bytes[0] = 1;
-        if (words[0] === 1) {
-            _is_little_endian = true;
-        } else if (words[0] === 16777216) {
-            _is_little_endian = false;
-        } else {
-            throw "we're bizarro endian, refusing to continue";
+function make_basic(type, proto) {
+    proto = proto || {
+        json: function() { 
+            throw "json() unsupported for type " + this.type;
         }
-    })();
-
-    Rserve.EndianAwareDataView = (function() {
-        
-        var proto = {
-            'setInt8': function(i, v) { return this.view.setInt8(i, v); },
-            'setUint8': function(i, v) { return this.view.setUint8(i, v); },
-            'getInt8': function(i) { return this.view.getInt8(i); },
-            'getUint8': function(i) { return this.view.getUint8(i); }
-        };
-
-        var setters = ['setInt32', 'setInt16', 'setUint32', 'setUint16',
-                       'setFloat32', 'setFloat64'];
-        var getters = ['getInt32', 'getInt16', 'getUint32', 'getUint16',
-                       'getFloat32', 'getFloat64'];
-
-        for (var i=0; i<setters.length; ++i) {
-            var name = setters[i];
-            proto[name]= (function(name) {
-                return function(byteOffset, value) {
-                    return this.view[name](byteOffset, value, _is_little_endian);
-                };
-            })(name);
-        }
-        for (i=0; i<getters.length; ++i) {
-            var name = getters[i];
-            proto[name]= (function(name) {
-                return function(byteOffset) {
-                    return this.view[name](byteOffset, _is_little_endian);
-                };
-            })(name);
-        }
-
-        function my_dataView(buffer, byteOffset, byteLength) {
-            if (byteOffset === undefined) {
-                // work around node.js bug https://github.com/joyent/node/issues/6051
-                if (buffer.byteLength === 0) {
-                    this.view = {
-                        byteLength: 0, byteOffset: 0
-                    };
-                } else
-                    this.view = new DataView(buffer);
-            } else {
-                this.view = new DataView(buffer, byteOffset, byteLength);
-            }
-        };
-        my_dataView.prototype = proto;
-        return my_dataView;
-    })();
-
-    Rserve.my_ArrayBufferView = function(b, o, l) {
-        o = _.isUndefined(o) ? 0 : o;
-        l = _.isUndefined(l) ? b.byteLength : l;
-        return {
-            buffer: b,
-            offset: o,
-            length: l,
-            make: function(ctor, new_offset, new_length) { 
-                new_offset = _.isUndefined(new_offset) ? 0 : new_offset;
-                new_length = _.isUndefined(new_length) ? this.length : new_length;
-                var element_size = ctor.BYTES_PER_ELEMENT || 1;
-                var n_els = new_length / element_size;
-                if ((this.offset + new_offset) % element_size != 0) {
-                    var view = new DataView(this.buffer, this.offset + new_offset, new_length);
-                    var output_buffer = new ArrayBuffer(new_length);
-                    var out_view = new DataView(output_buffer);
-                    for (var i=0; i < new_length; ++i) {
-                        out_view.setUint8(i, view.getUint8(i));
-                    }
-                    return new ctor(output_buffer);
-                } else {
-                    return new ctor(this.buffer, 
-                                    this.offset + new_offset, 
-                                    n_els);
-                }
-            },
-            view: function(new_offset, new_length) {
-                // FIXME Needs bounds checking
-                return Rserve.my_ArrayBufferView(this.buffer, this.offset + new_offset, new_length);
-            }
-        };
     };
+    var wrapped_proto = {
+        json: function() {
+            var result = proto.json.call(this);
+            result.r_type = type;
+            return result;
+        }
+    };
+    return function(v, attrs) {
+        function r_object() {
+            this.type = type;
+            this.value = v;
+            this.attributes = attrs;
+        }
+        r_object.prototype = wrapped_proto;
+        var result = new r_object();
+        return result;
+    };
+}
 
-})(this);
+Rserve.Robj = {
+    "null": function(attributes) {
+        return { 
+            type: "null", 
+            value: null,
+            attributes: attributes,
+            json: function() { return null; }
+        };
+    },
 
-/*
+    clos: function(formals, body, attributes) {
+        return {
+            type: "clos",
+            value: { formals: formals,
+                     body: body },
+            attributes: attributes,
+            json: function() { throw "json() unsupported for type clos"; }
+        };
+    },
 
- RServe is a low-level communication layer between Javascript and a
- running RServe process on the other side, via Websockets. 
- 
- */
-
-(function() {
-
-function _encode_command(command, buffer) {
-    var length = buffer.byteLength;
-    var big_buffer = new ArrayBuffer(16 + length);
-    var array_view = new Uint8Array(buffer);
-    var view = new Rserve.EndianAwareDataView(big_buffer);
-    view.setInt32(0, command);
-    view.setInt32(4, length);
-    view.setInt32(8, 0);
-    view.setInt32(12, 0);
-    for (var i=0; i<length; ++i)
-        view.setUint8(16+i, array_view[i]);
-    return big_buffer;
+    vector: make_basic("vector", {
+        json: function() {
+            var values = _.map(this.value, function (x) { return x.json(); });
+            if (_.isUndefined(this.attributes)) {
+                return values;
+            } else {
+                if(this.attributes.value[0].name!="names")
+                    throw "expected names here";
+                var keys   = this.attributes.value[0].value.value;
+                var result = {};
+                _.each(keys, function(key, i) {
+                    result[key] = values[i];
+                });
+                return result;
+            }
+        }
+    }),
+    symbol: make_basic("symbol", { 
+        json: function() {
+            return this.value;
+        }
+    }),
+    list: make_basic("list"),
+    lang: make_basic("lang", {
+        json: function() {
+            var values = _.map(this.value, function (x) { return x.json(); });
+            if (_.isUndefined(this.attributes)) {
+                return values;
+            } else {
+                if(this.attributes.value[0].name!="names")
+                    throw "expected names here";
+                var keys   = this.attributes.value[0].value.value;
+                var result = {};
+                _.each(keys, function(key, i) {
+                    result[key] = values[i];
+                });
+                return result;
+            }
+        }
+    }),
+    tagged_list: make_basic("tagged_list", {
+        json: function() {
+            function classify_list(list) {
+                if (_.all(list, function(elt) { return elt.name === null; })) {
+                    return "plain_list";
+                } else if (_.all(list, function(elt) { return elt.name !== null; })) {
+                    return "plain_object";
+                } else
+                    return "mixed_list";
+            }
+            var list = this.value.slice(1);
+            switch (classify_list(list)) {
+            case "plain_list":
+                return _.map(list, function(elt) { return elt.value.json(); });
+            case "plain_object":
+                return _.object(_.map(list, function(elt) { 
+                    return [elt.name, elt.value.json()];
+                }));
+            case "mixed_list":
+                return list;
+            default:
+                throw "Internal Error";
+            }
+        }
+    }),
+    tagged_lang: make_basic("tagged_lang", {
+        json: function() {
+            var pair_vec = _.map(this.value, function(elt) { return [elt.name, elt.value.json()]; });
+            return pair_vec;
+        }
+    }),
+    vector_exp: make_basic("vector_exp"),
+    int_array: make_basic("int_array", {
+        json: function() {
+            if(this.attributes && this.attributes.type==='tagged_list' 
+               && this.attributes.value[0].name==='levels'
+               && this.attributes.value[0].value.type==='string_array') {
+                var levels = this.attributes.value[0].value.value;
+                var arr = _.map(this.value, function(factor) { return levels[factor-1]; });
+                arr.levels = levels;
+                return arr;
+            }
+            else {
+                if (this.value.length === 1)
+                    return this.value[0];
+                else
+                    return this.value;
+            }
+        }
+    }),
+    double_array: make_basic("double_array", {
+        json: function() {
+            if (this.value.length === 1)
+                return this.value[0];
+            else
+                return this.value;
+        }
+    }),
+    string_array: make_basic("string_array", {
+        json: function() {
+            if (this.value.length === 1)
+                return this.value[0];
+            else
+                return this.value;
+        }
+    }),
+    bool_array: make_basic("bool_array", {
+        json: function() {
+            if (this.value.length === 1)
+                return this.value[0];
+            else
+                return this.value;
+        }
+    })
 };
 
-function _encode_string(str) {
-    var payload_length = str.length + 5;
-    var result = new ArrayBuffer(payload_length);
-    var view = new Rserve.EndianAwareDataView(result);
-    view.setInt32(0, Rsrv.DT_STRING + (payload_length << 8));
-    for (var i=0; i<str.length; ++i)
-        view.setInt8(4+i, str.charCodeAt(i));
-    view.setInt8(4+str.length, 0);
-    return result;
-};
+})();
+// Simple constants and functions are defined here,
+// in correspondence with Rserve's Rsrv.h
 
-function _encode_bytes(bytes) {
-    var payload_length = bytes.length;
-    var header_length = 4;
-    var result = new ArrayBuffer(payload_length + header_length);
-    var view = new Rserve.EndianAwareDataView(result);
-    view.setInt32(0, Rsrv.DT_BYTESTREAM + (payload_length << 8));
-    for (var i=0; i<bytes.length; ++i)
-        view.setInt8(4+i, bytes[i]);
-    return result;
-};
-
-var Rsrv = {
+Rserve.Rsrv = {
     PAR_TYPE: function(x) { return x & 255; },
     PAR_LEN: function(x) { return x >> 8; },
     PAR_LENGTH: function(x) { return x >> 8; },
-    par_parse: function(x) { return [Rsrv.PAR_TYPE(x), Rsrv.PAR_LEN(x)]; },
+    par_parse: function(x) { return [Rserve.Rsrv.PAR_TYPE(x), Rserve.Rsrv.PAR_LEN(x)]; },
     SET_PAR: function(ty, len) { return ((len & 0xffffff) << 8 | (ty & 255)); },
     CMD_STAT: function(x) { return (x >> 24) & 127; },
     SET_STAT: function(x, s) { return x | ((s & 127) << 24); },
@@ -295,6 +313,155 @@ var Rsrv = {
         0x64 : "ERR_securityClose"
     }
 };
+// we want an endian aware dataview mostly because ARM can be big-endian, and
+// that might put us in trouble wrt handheld devices.
+//////////////////////////////////////////////////////////////////////////////
+
+(function() {
+    var _is_little_endian;
+
+    (function() {
+        var x = new ArrayBuffer(4);
+        var bytes = new Uint8Array(x),
+        words = new Uint32Array(x);
+        bytes[0] = 1;
+        if (words[0] === 1) {
+            _is_little_endian = true;
+        } else if (words[0] === 16777216) {
+            _is_little_endian = false;
+        } else {
+            throw "we're bizarro endian, refusing to continue";
+        }
+    })();
+
+    Rserve.EndianAwareDataView = (function() {
+        
+        var proto = {
+            'setInt8': function(i, v) { return this.view.setInt8(i, v); },
+            'setUint8': function(i, v) { return this.view.setUint8(i, v); },
+            'getInt8': function(i) { return this.view.getInt8(i); },
+            'getUint8': function(i) { return this.view.getUint8(i); }
+        };
+
+        var setters = ['setInt32', 'setInt16', 'setUint32', 'setUint16',
+                       'setFloat32', 'setFloat64'];
+        var getters = ['getInt32', 'getInt16', 'getUint32', 'getUint16',
+                       'getFloat32', 'getFloat64'];
+
+        for (var i=0; i<setters.length; ++i) {
+            var name = setters[i];
+            proto[name]= (function(name) {
+                return function(byteOffset, value) {
+                    return this.view[name](byteOffset, value, _is_little_endian);
+                };
+            })(name);
+        }
+        for (i=0; i<getters.length; ++i) {
+            var name = getters[i];
+            proto[name]= (function(name) {
+                return function(byteOffset) {
+                    return this.view[name](byteOffset, _is_little_endian);
+                };
+            })(name);
+        }
+
+        function my_dataView(buffer, byteOffset, byteLength) {
+            if (byteOffset === undefined) {
+                // work around node.js bug https://github.com/joyent/node/issues/6051
+                if (buffer.byteLength === 0) {
+                    this.view = {
+                        byteLength: 0, byteOffset: 0
+                    };
+                } else
+                    this.view = new DataView(buffer);
+            } else {
+                this.view = new DataView(buffer, byteOffset, byteLength);
+            }
+        };
+        my_dataView.prototype = proto;
+        return my_dataView;
+    })();
+
+    Rserve.my_ArrayBufferView = function(b, o, l) {
+        o = _.isUndefined(o) ? 0 : o;
+        l = _.isUndefined(l) ? b.byteLength : l;
+        return {
+            buffer: b,
+            offset: o,
+            length: l,
+            make: function(ctor, new_offset, new_length) { 
+                new_offset = _.isUndefined(new_offset) ? 0 : new_offset;
+                new_length = _.isUndefined(new_length) ? this.length : new_length;
+                var element_size = ctor.BYTES_PER_ELEMENT || 1;
+                var n_els = new_length / element_size;
+                if ((this.offset + new_offset) % element_size != 0) {
+                    var view = new DataView(this.buffer, this.offset + new_offset, new_length);
+                    var output_buffer = new ArrayBuffer(new_length);
+                    var out_view = new DataView(output_buffer);
+                    for (var i=0; i < new_length; ++i) {
+                        out_view.setUint8(i, view.getUint8(i));
+                    }
+                    return new ctor(output_buffer);
+                } else {
+                    return new ctor(this.buffer, 
+                                    this.offset + new_offset, 
+                                    n_els);
+                }
+            },
+            view: function(new_offset, new_length) {
+                // FIXME Needs bounds checking
+                return Rserve.my_ArrayBufferView(this.buffer, this.offset + new_offset, new_length);
+            }
+        };
+    };
+
+})(this);
+
+/*
+
+ RServe is a low-level communication layer between Javascript and a
+ running RServe process on the other side, via Websockets. 
+ 
+ */
+
+(function() {
+
+function _encode_command(command, buffer) {
+    var length = buffer.byteLength;
+    var big_buffer = new ArrayBuffer(16 + length);
+    var array_view = new Uint8Array(buffer);
+    var view = new Rserve.EndianAwareDataView(big_buffer);
+    view.setInt32(0, command);
+    view.setInt32(4, length);
+    view.setInt32(8, 0);
+    view.setInt32(12, 0);
+    for (var i=0; i<length; ++i)
+        view.setUint8(16+i, array_view[i]);
+    return big_buffer;
+};
+
+function _encode_string(str) {
+    var payload_length = str.length + 5;
+    var result = new ArrayBuffer(payload_length);
+    var view = new Rserve.EndianAwareDataView(result);
+    view.setInt32(0, Rserve.Rsrv.DT_STRING + (payload_length << 8));
+    for (var i=0; i<str.length; ++i)
+        view.setInt8(4+i, str.charCodeAt(i));
+    view.setInt8(4+str.length, 0);
+    return result;
+};
+
+function _encode_bytes(bytes) {
+    var payload_length = bytes.length;
+    var header_length = 4;
+    var result = new ArrayBuffer(payload_length + header_length);
+    var view = new Rserve.EndianAwareDataView(result);
+    view.setInt32(0, Rserve.Rsrv.DT_BYTESTREAM + (payload_length << 8));
+    for (var i=0; i<bytes.length; ++i)
+        view.setInt8(4+i, bytes[i]);
+    return result;
+};
+
 
 function reader(m)
 {
@@ -367,7 +534,7 @@ function reader(m)
 
         //////////////////////////////////////////////////////////////////////
 
-        read_null: lift(function(a, l) { return Robj.null(a); }),
+        read_null: lift(function(a, l) { return Rserve.Robj.null(a); }),
 
         //////////////////////////////////////////////////////////////////////
         // and these return full R objects as well.
@@ -383,23 +550,23 @@ function reader(m)
                 } else {
                     current_str = current_str + String.fromCharCode(a[i]);
                 }
-            return [Robj.string_array(result, attributes), length];
+            return [Rserve.Robj.string_array(result, attributes), length];
         },
         read_bool_array: function(attributes, length) {
             var l2 = this.read_int();
             var s = this.read_stream(length-4);
             var a = s.make(Uint8Array).subarray(0, l2);
-            return [Robj.bool_array(a, attributes), length];
+            return [Rserve.Robj.bool_array(a, attributes), length];
         },
 
         read_sexp: function() {
             var d = this.read_int();
-            var _ = Rsrv.par_parse(d);
+            var _ = Rserve.Rsrv.par_parse(d);
             var t = _[0], l = _[1];
             var total_read = 4;
             var attributes = undefined;
-            if (t & Rsrv.XT_HAS_ATTR) {
-                t = t & ~Rsrv.XT_HAS_ATTR;
+            if (t & Rserve.Rsrv.XT_HAS_ATTR) {
+                t = t & ~Rserve.Rsrv.XT_HAS_ATTR;
                 var attr_result = this.read_sexp();
                 attributes = attr_result[0];
                 total_read += attr_result[1];
@@ -417,7 +584,7 @@ function reader(m)
     that.read_clos = bind(that.read_sexp, function(formals) { 
               return bind(that.read_sexp, function(body)    { 
               return lift(function(a, l) {
-              return Robj.clos(formals, body, a); 
+              return Rserve.Robj.clos(formals, body, a); 
               }, 0);
               } );
     });
@@ -441,44 +608,44 @@ function reader(m)
     that.read_list_tag = bind(that.read_list, function(lst) {
         return lift(function(attributes, length) {
             var result = read_symbol_value_pairs(lst);
-            return Robj.tagged_list(result, attributes);
+            return Rserve.Robj.tagged_list(result, attributes);
         }, 0);
     });
     that.read_lang_tag = bind(that.read_list, function(lst) {
         return lift(function(attributes, length) {
             var result = read_symbol_value_pairs(lst);
-            return Robj.tagged_lang(result, attributes);
+            return Rserve.Robj.tagged_lang(result, attributes);
         }, 0);
     });
 
     function xf(f, g) { return bind(f, function(t) { 
         return lift(function(a, l) { return g(t, a); }, 0); 
     }); }
-    that.read_vector       = xf(that.read_list, Robj.vector);
-    that.read_list_no_tag  = xf(that.read_list, Robj.list);
-    that.read_lang_no_tag  = xf(that.read_list, Robj.lang);
-    that.read_vector_exp   = xf(that.read_list, Robj.vector_exp);
+    that.read_vector       = xf(that.read_list, Rserve.Robj.vector);
+    that.read_list_no_tag  = xf(that.read_list, Rserve.Robj.list);
+    that.read_lang_no_tag  = xf(that.read_list, Rserve.Robj.lang);
+    that.read_vector_exp   = xf(that.read_list, Rserve.Robj.vector_exp);
 
     function sl(f, g) { return lift(function(a, l) {
         return g(f.call(that, l), a);
     }); }
-    that.read_symname      = sl(that.read_string,        Robj.symbol);
-    that.read_int_array    = sl(that.read_int_vector,    Robj.int_array);
-    that.read_double_array = sl(that.read_double_vector, Robj.double_array);
+    that.read_symname      = sl(that.read_string,        Rserve.Robj.symbol);
+    that.read_int_array    = sl(that.read_int_vector,    Rserve.Robj.int_array);
+    that.read_double_array = sl(that.read_double_vector, Rserve.Robj.double_array);
 
-    handlers[Rsrv.XT_NULL]         = that.read_null;
-    handlers[Rsrv.XT_VECTOR]       = that.read_vector;
-    handlers[Rsrv.XT_CLOS]         = that.read_clos;
-    handlers[Rsrv.XT_SYMNAME]      = that.read_symname;
-    handlers[Rsrv.XT_LIST_NOTAG]   = that.read_list_no_tag;
-    handlers[Rsrv.XT_LIST_TAG]     = that.read_list_tag;
-    handlers[Rsrv.XT_LANG_NOTAG]   = that.read_lang_no_tag;
-    handlers[Rsrv.XT_LANG_TAG]     = that.read_lang_tag;
-    handlers[Rsrv.XT_VECTOR_EXP]   = that.read_vector_exp;
-    handlers[Rsrv.XT_ARRAY_INT]    = that.read_int_array;
-    handlers[Rsrv.XT_ARRAY_DOUBLE] = that.read_double_array;
-    handlers[Rsrv.XT_ARRAY_STR]    = that.read_string_array;
-    handlers[Rsrv.XT_ARRAY_BOOL]   = that.read_bool_array;
+    handlers[Rserve.Rsrv.XT_NULL]         = that.read_null;
+    handlers[Rserve.Rsrv.XT_VECTOR]       = that.read_vector;
+    handlers[Rserve.Rsrv.XT_CLOS]         = that.read_clos;
+    handlers[Rserve.Rsrv.XT_SYMNAME]      = that.read_symname;
+    handlers[Rserve.Rsrv.XT_LIST_NOTAG]   = that.read_list_no_tag;
+    handlers[Rserve.Rsrv.XT_LIST_TAG]     = that.read_list_tag;
+    handlers[Rserve.Rsrv.XT_LANG_NOTAG]   = that.read_lang_no_tag;
+    handlers[Rserve.Rsrv.XT_LANG_TAG]     = that.read_lang_tag;
+    handlers[Rserve.Rsrv.XT_VECTOR_EXP]   = that.read_vector_exp;
+    handlers[Rserve.Rsrv.XT_ARRAY_INT]    = that.read_int_array;
+    handlers[Rserve.Rsrv.XT_ARRAY_DOUBLE] = that.read_double_array;
+    handlers[Rserve.Rsrv.XT_ARRAY_STR]    = that.read_string_array;
+    handlers[Rserve.Rsrv.XT_ARRAY_BOOL]   = that.read_bool_array;
 
     return that;
 }
@@ -490,10 +657,10 @@ function parse(msg)
     var resp = header[0] & 16777215, status_code = header[0] >> 24;
     result.header = [resp, status_code];
 
-    if (result.header[0] === Rsrv.RESP_ERR) {
+    if (result.header[0] === Rserve.Rsrv.RESP_ERR) {
         result.ok = false;
         result.status_code = status_code;
-        result.message = "ERROR FROM R SERVER: " + (Rsrv.status_codes[status_code] || 
+        result.message = "ERROR FROM R SERVER: " + (Rserve.Rsrv.status_codes[status_code] || 
                                          status_code)
                + " " + result.header[0] + " " + result.header[1]
                + " " + msg.byteLength
@@ -501,9 +668,9 @@ function parse(msg)
         return result;
     }
 
-    if (!_.contains([Rsrv.RESP_OK, Rsrv.OOB_SEND, Rsrv.OOB_MSG], result.header[0])) {
+    if (!_.contains([Rserve.Rsrv.RESP_OK, Rserve.Rsrv.OOB_SEND, Rserve.Rsrv.OOB_MSG], result.header[0])) {
         result.ok = false;
-        result.message = "Unexpected response from RServe: " + result.header[0] + " status: " + Rsrv.status_codes[status_code];
+        result.message = "Unexpected response from RServe: " + result.header[0] + " status: " + Rserve.Rsrv.status_codes[status_code];
         return result;
     }
     result.ok = true;
@@ -519,182 +686,21 @@ function parse(msg)
 function parse_payload(reader)
 {
     var d = reader.read_int();
-    var _ = Rsrv.par_parse(d);
+    var _ = Rserve.Rsrv.par_parse(d);
     var t = _[0], l = _[1];
-    if (t === Rsrv.DT_INT) {
+    if (t === Rserve.Rsrv.DT_INT) {
         return { type: "int", value: reader.read_int() };
-    } else if (t === Rsrv.DT_STRING) {
+    } else if (t === Rserve.Rsrv.DT_STRING) {
         return { type: "string", value: reader.read_string(l) };
-    } else if (t === Rsrv.DT_BYTESTREAM) { // NB this returns a my_ArrayBufferView()
+    } else if (t === Rserve.Rsrv.DT_BYTESTREAM) { // NB this returns a my_ArrayBufferView()
         return { type: "stream", value: reader.read_stream(l) };
-    } else if (t === Rsrv.DT_SEXP) {
+    } else if (t === Rserve.Rsrv.DT_SEXP) {
         _ = reader.read_sexp();
         var sexp = _[0], l2 = _[1];
         return { type: "sexp", value: sexp };
     } else
         throw new Rserve.RserveError("Bad type for parse? " + t + " " + l, -1);
 }
-
-function make_basic(type, proto) {
-    proto = proto || {
-        json: function() { 
-            throw "json() unsupported for type " + this.type;
-        }
-    };
-    var wrapped_proto = {
-        json: function() {
-            var result = proto.json.call(this);
-            result.r_type = type;
-            return result;
-        }
-    };
-    return function(v, attrs) {
-        function r_object() {
-            this.type = type;
-            this.value = v;
-            this.attributes = attrs;
-        }
-        r_object.prototype = wrapped_proto;
-        var result = new r_object();
-        return result;
-    };
-}
-
-Robj = {
-    "null": function(attributes) {
-        return { 
-            type: "null", 
-            value: null,
-            attributes: attributes,
-            json: function() { return null; }
-        };
-    },
-
-    clos: function(formals, body, attributes) {
-        return {
-            type: "clos",
-            value: { formals: formals,
-                     body: body },
-            attributes: attributes,
-            json: function() { throw "json() unsupported for type clos"; }
-        };
-    },
-
-    vector: make_basic("vector", {
-        json: function() {
-            var values = _.map(this.value, function (x) { return x.json(); });
-            if (_.isUndefined(this.attributes)) {
-                return values;
-            } else {
-                if(this.attributes.value[0].name!="names")
-                    throw "expected names here";
-                var keys   = this.attributes.value[0].value.value;
-                var result = {};
-                _.each(keys, function(key, i) {
-                    result[key] = values[i];
-                });
-                return result;
-            }
-        }
-    }),
-    symbol: make_basic("symbol", { 
-        json: function() {
-            return this.value;
-        }
-    }),
-    list: make_basic("list"),
-    lang: make_basic("lang", {
-        json: function() {
-            var values = _.map(this.value, function (x) { return x.json(); });
-            if (_.isUndefined(this.attributes)) {
-                return values;
-            } else {
-                if(this.attributes.value[0].name!="names")
-                    throw "expected names here";
-                var keys   = this.attributes.value[0].value.value;
-                var result = {};
-                _.each(keys, function(key, i) {
-                    result[key] = values[i];
-                });
-                return result;
-            }
-        }
-    }),
-    tagged_list: make_basic("tagged_list", {
-        json: function() {
-            function classify_list(list) {
-                if (_.all(list, function(elt) { return elt.name === null; })) {
-                    return "plain_list";
-                } else if (_.all(list, function(elt) { return elt.name !== null; })) {
-                    return "plain_object";
-                } else
-                    return "mixed_list";
-            }
-            var list = this.value.slice(1);
-            switch (classify_list(list)) {
-            case "plain_list":
-                return _.map(list, function(elt) { return elt.value.json(); });
-            case "plain_object":
-                return _.object(_.map(list, function(elt) { 
-                    return [elt.name, elt.value.json()];
-                }));
-            case "mixed_list":
-                return list;
-            default:
-                throw "Internal Error";
-            }
-        }
-    }),
-    tagged_lang: make_basic("tagged_lang", {
-        json: function() {
-            var pair_vec = _.map(this.value, function(elt) { return [elt.name, elt.value.json()]; });
-            return pair_vec;
-        }
-    }),
-    vector_exp: make_basic("vector_exp"),
-    int_array: make_basic("int_array", {
-        json: function() {
-            if(this.attributes && this.attributes.type==='tagged_list' 
-               && this.attributes.value[0].name==='levels'
-               && this.attributes.value[0].value.type==='string_array') {
-                var levels = this.attributes.value[0].value.value;
-                var arr = _.map(this.value, function(factor) { return levels[factor-1]; });
-                arr.levels = levels;
-                return arr;
-            }
-            else {
-                if (this.value.length === 1)
-                    return this.value[0];
-                else
-                    return this.value;
-            }
-        }
-    }),
-    double_array: make_basic("double_array", {
-        json: function() {
-            if (this.value.length === 1)
-                return this.value[0];
-            else
-                return this.value;
-        }
-    }),
-    string_array: make_basic("string_array", {
-        json: function() {
-            if (this.value.length === 1)
-                return this.value[0];
-            else
-                return this.value;
-        }
-    }),
-    bool_array: make_basic("bool_array", {
-        json: function() {
-            if (this.value.length === 1)
-                return this.value[0];
-            else
-                return this.value;
-        }
-    })
-};
 
 Rserve.create = function(opts) {
         var host = opts.host;
@@ -748,13 +754,13 @@ Rserve.create = function(opts) {
             var v = parse(msg.data);
             if (!v.ok) {
                 handle_error(v.message, v.status_code);
-            } else if (v.header[0] === Rsrv.RESP_OK) {
+            } else if (v.header[0] === Rserve.Rsrv.RESP_OK) {
                 result_callback(v.payload);
-            } else if (v.header[0] === Rsrv.OOB_SEND) {
+            } else if (v.header[0] === Rserve.Rsrv.OOB_SEND) {
                 opts.on_data && opts.on_data(v.payload);
-            } else if (v.header[0] === Rsrv.OOB_MSG) {
+            } else if (v.header[0] === Rserve.Rsrv.OOB_MSG) {
                 if (_.isUndefined(opts.on_oob_message)) {
-                    _send_cmd_now(Rsrv.RESP_ERR | Rsrv.OOB_MSG, 
+                    _send_cmd_now(Rserve.Rsrv.RESP_ERR | Rserve.Rsrv.OOB_MSG, 
                                   _encode_string("No handler installed"));
                 } else {
                     in_oob_message = true;
@@ -764,8 +770,8 @@ Rserve.create = function(opts) {
                             return;
                         }
                         in_oob_message = false;
-                        var header = Rsrv.OOB_MSG | 
-                            (error ? Rsrv.RESP_ERR : Rsrv.RESP_OK);
+                        var header = Rserve.Rsrv.OOB_MSG | 
+                            (error ? Rserve.Rsrv.RESP_ERR : Rserve.Rsrv.RESP_OK);
                         _send_cmd_now(header, _encode_string(message));
                         bump_queue();
                     });
@@ -821,19 +827,19 @@ Rserve.create = function(opts) {
                 socket.close();
             },
             login: function(command, k) {
-                _cmd(Rsrv.CMD_login, _encode_string(command), k, command);
+                _cmd(Rserve.Rsrv.CMD_login, _encode_string(command), k, command);
             },
             eval: function(command, k) {
-                _cmd(Rsrv.CMD_eval, _encode_string(command), k, command);
+                _cmd(Rserve.Rsrv.CMD_eval, _encode_string(command), k, command);
             },
             createFile: function(command, k) {
-                _cmd(Rsrv.CMD_createFile, _encode_string(command), k, command);
+                _cmd(Rserve.Rsrv.CMD_createFile, _encode_string(command), k, command);
             },
             writeFile: function(chunk, k) {
-                _cmd(Rsrv.CMD_writeFile, _encode_bytes(chunk), k, "");
+                _cmd(Rserve.Rsrv.CMD_writeFile, _encode_bytes(chunk), k, "");
             },
             closeFile: function(k) {
-                _cmd(Rsrv.CMD_closeFile, new ArrayBuffer(0), k, "");
+                _cmd(Rserve.Rsrv.CMD_closeFile, new ArrayBuffer(0), k, "");
             }
         };
         return result;
@@ -847,7 +853,7 @@ Rserve.RserveError = function(message, status_code) {
 };
 
 Rserve.RserveError.prototype = Object.create(Error);
-Rserve.RserveError.prototype.constructor = RserveError;
+Rserve.RserveError.prototype.constructor = Rserve.RserveError;
 })();
 module.exports = Rserve;
 (function () { delete this.Rserve; })(); // unset global

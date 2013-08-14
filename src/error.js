@@ -5,4 +5,4 @@ Rserve.RserveError = function(message, status_code) {
 };
 
 Rserve.RserveError.prototype = Object.create(Error);
-Rserve.RserveError.prototype.constructor = RserveError;
+Rserve.RserveError.prototype.constructor = Rserve.RserveError;
