@@ -1,0 +1,2 @@
+#!/bin/sh
+R --slave --no-restore --vanilla --file="oc_start.R"

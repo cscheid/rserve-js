@@ -1,0 +1,9 @@
+{
+  "name": "rserve-js-ocap",
+  "version": "0.0.1",
+  "description": "ocap tests for rserve",
+  "keywords": [ "rserve" ],
+  "dependencies": {
+    "ws": "0.4.27"
+  }
+}
