@@ -1,18 +1,6 @@
-# rserve-js: a Javascript+Websockets implementation of the RServe protocol
+# A javascript implementation of RServe over WebSockets
 
-## Prerequisites
-
-You will need a version of Rserve that's not on CRAN. Get it like this:
-
-    > install.packages("Rserve",,"http://rforge.net",type="source")
-
-You will need node.js to make changes to the library:
-
-    $ cd rserve-js
-    $ npm install
-
-## Dependencies
-
-rserve-js requires [Underscore.js](http://underscorejs.org).
-
-
+RServe is a protocol for communication with a remote R session. This
+package allows you to connect to a running RServe server that is
+serving over websockets. This way node.js (and javascript programs in
+general) can communicate with an instance of R.

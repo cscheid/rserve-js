@@ -2,11 +2,13 @@
     "name": "rserve-js",
     "version": "0.0.1",
     "description": "rserve-js provides a javascript implementation of the websocket Rserve protocol",
+    "main": "main.js",
     "keywords": [ "rserve", "websockets" ],
     "devDependencies": {
 	"uglify-js": "2.3.6"
     },
     "dependencies": {
-	"ws": "0.4.27"
+	"ws": "0.4.27",
+	"underscore": "1.5.1"
     }
 }

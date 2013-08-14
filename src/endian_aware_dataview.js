@@ -2,7 +2,7 @@
 // that might put us in trouble wrt handheld devices.
 //////////////////////////////////////////////////////////////////////////////
 
-(function(global) {
+(function() {
     var _is_little_endian;
 
     (function() {
@@ -19,7 +19,7 @@
         }
     })();
 
-    global.EndianAwareDataView = (function() {
+    Rserve.EndianAwareDataView = (function() {
         
         var proto = {
             'setInt8': function(i, v) { return this.view.setInt8(i, v); },
@@ -36,22 +36,29 @@
         for (var i=0; i<setters.length; ++i) {
             var name = setters[i];
             proto[name]= (function(name) {
-                return function(byteOffset, value) { 
-                    return this.view[name](byteOffset, value, _is_little_endian); };
+                return function(byteOffset, value) {
+                    return this.view[name](byteOffset, value, _is_little_endian);
+                };
             })(name);
         }
         for (i=0; i<getters.length; ++i) {
             var name = getters[i];
             proto[name]= (function(name) {
-                return function(byteOffset) { 
-                    return this.view[name](byteOffset, _is_little_endian); 
+                return function(byteOffset) {
+                    return this.view[name](byteOffset, _is_little_endian);
                 };
             })(name);
         }
-        
+
         function my_dataView(buffer, byteOffset, byteLength) {
             if (byteOffset === undefined) {
-                this.view = new DataView(buffer);
+                // work around node.js bug https://github.com/joyent/node/issues/6051
+                if (buffer.byteLength === 0) {
+                    this.view = {
+                        byteLength: 0, byteOffset: 0
+                    };
+                } else
+                    this.view = new DataView(buffer);
             } else {
                 this.view = new DataView(buffer, byteOffset, byteLength);
             }
@@ -60,7 +67,7 @@
         return my_dataView;
     })();
 
-    global.my_ArrayBufferView = function(b, o, l) {
+    Rserve.my_ArrayBufferView = function(b, o, l) {
         o = _.isUndefined(o) ? 0 : o;
         l = _.isUndefined(l) ? b.byteLength : l;
         return {
@@ -88,7 +95,7 @@
             },
             view: function(new_offset, new_length) {
                 // FIXME Needs bounds checking
-                return my_ArrayBufferView(this.buffer, this.offset + new_offset, new_length);
+                return Rserve.my_ArrayBufferView(this.buffer, this.offset + new_offset, new_length);
             }
         };
     };
