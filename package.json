@@ -1,8 +1,16 @@
 {
-    "name": "rserve-js",
+    "name": "rserve",
     "version": "0.0.1",
     "description": "rserve-js provides a javascript implementation of the websocket Rserve protocol",
+    "author": "Carlos Scheidegger <carlos.scheidegger@gmail.com> (http://cscheid.net)",
     "main": "main.js",
+    "homepage": "http://github.com/cscheid/rserve-js",
+    "bugs": "http://github.com/cscheid/rserve-js/issues",
+    "repository": {
+	"type": "git",
+	"url": "http://github.com/cscheid/rserve-js"
+    },
+    "license": "EPL 1.0 or GPL >= 2.0",
     "keywords": [ "rserve", "websockets" ],
     "devDependencies": {
 	"uglify-js": "2.3.6"
