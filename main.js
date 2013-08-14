@@ -313,155 +313,7 @@ Rserve.Rsrv = {
         0x64 : "ERR_securityClose"
     }
 };
-// we want an endian aware dataview mostly because ARM can be big-endian, and
-// that might put us in trouble wrt handheld devices.
-//////////////////////////////////////////////////////////////////////////////
-
 (function() {
-    var _is_little_endian;
-
-    (function() {
-        var x = new ArrayBuffer(4);
-        var bytes = new Uint8Array(x),
-        words = new Uint32Array(x);
-        bytes[0] = 1;
-        if (words[0] === 1) {
-            _is_little_endian = true;
-        } else if (words[0] === 16777216) {
-            _is_little_endian = false;
-        } else {
-            throw "we're bizarro endian, refusing to continue";
-        }
-    })();
-
-    Rserve.EndianAwareDataView = (function() {
-        
-        var proto = {
-            'setInt8': function(i, v) { return this.view.setInt8(i, v); },
-            'setUint8': function(i, v) { return this.view.setUint8(i, v); },
-            'getInt8': function(i) { return this.view.getInt8(i); },
-            'getUint8': function(i) { return this.view.getUint8(i); }
-        };
-
-        var setters = ['setInt32', 'setInt16', 'setUint32', 'setUint16',
-                       'setFloat32', 'setFloat64'];
-        var getters = ['getInt32', 'getInt16', 'getUint32', 'getUint16',
-                       'getFloat32', 'getFloat64'];
-
-        for (var i=0; i<setters.length; ++i) {
-            var name = setters[i];
-            proto[name]= (function(name) {
-                return function(byteOffset, value) {
-                    return this.view[name](byteOffset, value, _is_little_endian);
-                };
-            })(name);
-        }
-        for (i=0; i<getters.length; ++i) {
-            var name = getters[i];
-            proto[name]= (function(name) {
-                return function(byteOffset) {
-                    return this.view[name](byteOffset, _is_little_endian);
-                };
-            })(name);
-        }
-
-        function my_dataView(buffer, byteOffset, byteLength) {
-            if (byteOffset === undefined) {
-                // work around node.js bug https://github.com/joyent/node/issues/6051
-                if (buffer.byteLength === 0) {
-                    this.view = {
-                        byteLength: 0, byteOffset: 0
-                    };
-                } else
-                    this.view = new DataView(buffer);
-            } else {
-                this.view = new DataView(buffer, byteOffset, byteLength);
-            }
-        };
-        my_dataView.prototype = proto;
-        return my_dataView;
-    })();
-
-    Rserve.my_ArrayBufferView = function(b, o, l) {
-        o = _.isUndefined(o) ? 0 : o;
-        l = _.isUndefined(l) ? b.byteLength : l;
-        return {
-            buffer: b,
-            offset: o,
-            length: l,
-            make: function(ctor, new_offset, new_length) { 
-                new_offset = _.isUndefined(new_offset) ? 0 : new_offset;
-                new_length = _.isUndefined(new_length) ? this.length : new_length;
-                var element_size = ctor.BYTES_PER_ELEMENT || 1;
-                var n_els = new_length / element_size;
-                if ((this.offset + new_offset) % element_size != 0) {
-                    var view = new DataView(this.buffer, this.offset + new_offset, new_length);
-                    var output_buffer = new ArrayBuffer(new_length);
-                    var out_view = new DataView(output_buffer);
-                    for (var i=0; i < new_length; ++i) {
-                        out_view.setUint8(i, view.getUint8(i));
-                    }
-                    return new ctor(output_buffer);
-                } else {
-                    return new ctor(this.buffer, 
-                                    this.offset + new_offset, 
-                                    n_els);
-                }
-            },
-            view: function(new_offset, new_length) {
-                // FIXME Needs bounds checking
-                return Rserve.my_ArrayBufferView(this.buffer, this.offset + new_offset, new_length);
-            }
-        };
-    };
-
-})(this);
-
-/*
-
- RServe is a low-level communication layer between Javascript and a
- running RServe process on the other side, via Websockets. 
- 
- */
-
-(function() {
-
-function _encode_command(command, buffer) {
-    var length = buffer.byteLength;
-    var big_buffer = new ArrayBuffer(16 + length);
-    var array_view = new Uint8Array(buffer);
-    var view = new Rserve.EndianAwareDataView(big_buffer);
-    view.setInt32(0, command);
-    view.setInt32(4, length);
-    view.setInt32(8, 0);
-    view.setInt32(12, 0);
-    for (var i=0; i<length; ++i)
-        view.setUint8(16+i, array_view[i]);
-    return big_buffer;
-};
-
-function _encode_string(str) {
-    var payload_length = str.length + 5;
-    var result = new ArrayBuffer(payload_length);
-    var view = new Rserve.EndianAwareDataView(result);
-    view.setInt32(0, Rserve.Rsrv.DT_STRING + (payload_length << 8));
-    for (var i=0; i<str.length; ++i)
-        view.setInt8(4+i, str.charCodeAt(i));
-    view.setInt8(4+str.length, 0);
-    return result;
-};
-
-function _encode_bytes(bytes) {
-    var payload_length = bytes.length;
-    var header_length = 4;
-    var result = new ArrayBuffer(payload_length + header_length);
-    var view = new Rserve.EndianAwareDataView(result);
-    view.setInt32(0, Rserve.Rsrv.DT_BYTESTREAM + (payload_length << 8));
-    for (var i=0; i<bytes.length; ++i)
-        view.setInt8(4+i, bytes[i]);
-    return result;
-};
-
 
 function reader(m)
 {
@@ -702,147 +554,299 @@ function parse_payload(reader)
         throw new Rserve.RserveError("Bad type for parse? " + t + " " + l, -1);
 }
 
-Rserve.create = function(opts) {
-        var host = opts.host;
-        var onconnect = opts.on_connect;
-        var socket = new WebSocket(host);
-        var handle_error = opts.on_error || function(error) { throw new Rserve.RserveError(error, -1); };
+Rserve.parse_websocket_frame = parse;
 
-        var received_handshake = false;
+})();
+// we want an endian aware dataview mostly because ARM can be big-endian, and
+// that might put us in trouble wrt handheld devices.
+//////////////////////////////////////////////////////////////////////////////
 
-        var result;
-        var command_counter = 0;
+(function() {
+    var _is_little_endian;
+
+    (function() {
+        var x = new ArrayBuffer(4);
+        var bytes = new Uint8Array(x),
+        words = new Uint32Array(x);
+        bytes[0] = 1;
+        if (words[0] === 1) {
+            _is_little_endian = true;
+        } else if (words[0] === 16777216) {
+            _is_little_endian = false;
+        } else {
+            throw "we're bizarro endian, refusing to continue";
+        }
+    })();
+
+    Rserve.EndianAwareDataView = (function() {
         
-        function hand_shake(msg)
-        {
-            msg = msg.data;
-            if (msg.substr(0,4) !== 'Rsrv') {
-                handle_error("server is not an RServe instance", -1);
-            } else if (msg.substr(4, 4) !== '0103') {
-                handle_error("sorry, rserve only speaks the 0103 version of the R server protocol", -1);
-            } else if (msg.substr(8, 4) !== 'QAP1') {
-                handle_error("sorry, rserve only speaks QAP1", -1);
-            } else {
-                received_handshake = true;
-                if (opts.login)
-                    result.login(opts.login);
-                result.running = true;
-                onconnect && onconnect.call(result);
-            }
-        }
-
-        socket.onclose = function(msg) {
-            result.running = false;
-            result.closed = true;
-            opts.on_close && opts.on_close(msg);
+        var proto = {
+            'setInt8': function(i, v) { return this.view.setInt8(i, v); },
+            'setUint8': function(i, v) { return this.view.setUint8(i, v); },
+            'getInt8': function(i) { return this.view.getInt8(i); },
+            'getUint8': function(i) { return this.view.getUint8(i); }
         };
 
-        socket.onmessage = function(msg) {
-            if (opts.debug)
-                opts.debug.message_in && opts.debug.message_in(msg);
-            if (!received_handshake) {
-                hand_shake(msg);
-                return;
-            } 
-            if (typeof msg.data === 'string') {
-                opts.on_raw_string && opts.on_raw_string(msg.data);
-                return;
+        var setters = ['setInt32', 'setInt16', 'setUint32', 'setUint16',
+                       'setFloat32', 'setFloat64'];
+        var getters = ['getInt32', 'getInt16', 'getUint32', 'getUint16',
+                       'getFloat32', 'getFloat64'];
+
+        for (var i=0; i<setters.length; ++i) {
+            var name = setters[i];
+            proto[name]= (function(name) {
+                return function(byteOffset, value) {
+                    return this.view[name](byteOffset, value, _is_little_endian);
+                };
+            })(name);
+        }
+        for (i=0; i<getters.length; ++i) {
+            var name = getters[i];
+            proto[name]= (function(name) {
+                return function(byteOffset) {
+                    return this.view[name](byteOffset, _is_little_endian);
+                };
+            })(name);
+        }
+
+        function my_dataView(buffer, byteOffset, byteLength) {
+            if (byteOffset === undefined) {
+                // work around node.js bug https://github.com/joyent/node/issues/6051
+                if (buffer.byteLength === 0) {
+                    this.view = {
+                        byteLength: 0, byteOffset: 0
+                    };
+                } else
+                    this.view = new DataView(buffer);
+            } else {
+                this.view = new DataView(buffer, byteOffset, byteLength);
             }
-            // node.js Buffer vs ArrayBuffer workaround
-            if (msg.data.constructor.name === 'Buffer')
-                msg.data = (new Uint8Array(msg.data)).buffer;
-            var v = parse(msg.data);
-            if (!v.ok) {
-                handle_error(v.message, v.status_code);
-            } else if (v.header[0] === Rserve.Rsrv.RESP_OK) {
-                result_callback(v.payload);
-            } else if (v.header[0] === Rserve.Rsrv.OOB_SEND) {
-                opts.on_data && opts.on_data(v.payload);
-            } else if (v.header[0] === Rserve.Rsrv.OOB_MSG) {
-                if (_.isUndefined(opts.on_oob_message)) {
-                    _send_cmd_now(Rserve.Rsrv.RESP_ERR | Rserve.Rsrv.OOB_MSG, 
-                                  _encode_string("No handler installed"));
+        };
+        my_dataView.prototype = proto;
+        return my_dataView;
+    })();
+
+    Rserve.my_ArrayBufferView = function(b, o, l) {
+        o = _.isUndefined(o) ? 0 : o;
+        l = _.isUndefined(l) ? b.byteLength : l;
+        return {
+            buffer: b,
+            offset: o,
+            length: l,
+            make: function(ctor, new_offset, new_length) { 
+                new_offset = _.isUndefined(new_offset) ? 0 : new_offset;
+                new_length = _.isUndefined(new_length) ? this.length : new_length;
+                var element_size = ctor.BYTES_PER_ELEMENT || 1;
+                var n_els = new_length / element_size;
+                if ((this.offset + new_offset) % element_size != 0) {
+                    var view = new DataView(this.buffer, this.offset + new_offset, new_length);
+                    var output_buffer = new ArrayBuffer(new_length);
+                    var out_view = new DataView(output_buffer);
+                    for (var i=0; i < new_length; ++i) {
+                        out_view.setUint8(i, view.getUint8(i));
+                    }
+                    return new ctor(output_buffer);
                 } else {
-                    in_oob_message = true;
-                    opts.on_oob_message(v.payload, function(message, error) {
-                        if (!in_oob_message) {
-                            handle_error("Don't call oob_message_handler more than once.");
-                            return;
-                        }
-                        in_oob_message = false;
-                        var header = Rserve.Rsrv.OOB_MSG | 
-                            (error ? Rserve.Rsrv.RESP_ERR : Rserve.Rsrv.RESP_OK);
-                        _send_cmd_now(header, _encode_string(message));
-                        bump_queue();
-                    });
+                    return new ctor(this.buffer, 
+                                    this.offset + new_offset, 
+                                    n_els);
                 }
-            } else {
-                handle_error("Internal Error, parse returned unexpected type " + v.header[0], -1);
+            },
+            view: function(new_offset, new_length) {
+                // FIXME Needs bounds checking
+                return Rserve.my_ArrayBufferView(this.buffer, this.offset + new_offset, new_length);
             }
         };
+    };
 
-        function _send_cmd_now(command, buffer) {
-            var big_buffer = _encode_command(command, buffer);
-            if (opts.debug)
-                opts.debug.message_out && opts.debug.message_out(big_buffer[0], command);
-            socket.send(big_buffer);
-            return big_buffer;
-        };
+})(this);
 
-        var queue = [];
-        var in_oob_message = false;
-        var awaiting_result = false;
-        var result_callback;
-        function bump_queue() {
-            if (result.closed && queue.length) {
-                handle_error("Cannot send messages on a closed socket!", -1);
-            } else if (!awaiting_result && !in_oob_message && queue.length) {
-                var lst = queue.shift();
-                result_callback = lst[1];
-                awaiting_result = true;
-                if (opts.debug)
-                    opts.debug.message_out && opts.debug.message_out(lst[0], lst[2]);
-                socket.send(lst[0]);
-            }
+/*
+
+ RServe is a low-level communication layer between Javascript and a
+ running RServe process on the other side, via Websockets. 
+ 
+ */
+
+(function() {
+
+function _encode_command(command, buffer) {
+    var length = buffer.byteLength;
+    var big_buffer = new ArrayBuffer(16 + length);
+    var array_view = new Uint8Array(buffer);
+    var view = new Rserve.EndianAwareDataView(big_buffer);
+    view.setInt32(0, command);
+    view.setInt32(4, length);
+    view.setInt32(8, 0);
+    view.setInt32(12, 0);
+    for (var i=0; i<length; ++i)
+        view.setUint8(16+i, array_view[i]);
+    return big_buffer;
+};
+
+function _encode_string(str) {
+    var payload_length = str.length + 5;
+    var result = new ArrayBuffer(payload_length);
+    var view = new Rserve.EndianAwareDataView(result);
+    view.setInt32(0, Rserve.Rsrv.DT_STRING + (payload_length << 8));
+    for (var i=0; i<str.length; ++i)
+        view.setInt8(4+i, str.charCodeAt(i));
+    view.setInt8(4+str.length, 0);
+    return result;
+};
+
+function _encode_bytes(bytes) {
+    var payload_length = bytes.length;
+    var header_length = 4;
+    var result = new ArrayBuffer(payload_length + header_length);
+    var view = new Rserve.EndianAwareDataView(result);
+    view.setInt32(0, Rserve.Rsrv.DT_BYTESTREAM + (payload_length << 8));
+    for (var i=0; i<bytes.length; ++i)
+        view.setInt8(4+i, bytes[i]);
+    return result;
+};
+
+Rserve.create = function(opts) {
+    var host = opts.host;
+    var onconnect = opts.on_connect;
+    var socket = new WebSocket(host);
+    var handle_error = opts.on_error || function(error) { throw new Rserve.RserveError(error, -1); };
+
+    var received_handshake = false;
+
+    var result;
+    var command_counter = 0;
+    
+    function hand_shake(msg)
+    {
+        msg = msg.data;
+        if (msg.substr(0,4) !== 'Rsrv') {
+            handle_error("server is not an RServe instance", -1);
+        } else if (msg.substr(4, 4) !== '0103') {
+            handle_error("sorry, rserve only speaks the 0103 version of the R server protocol", -1);
+        } else if (msg.substr(8, 4) !== 'QAP1') {
+            handle_error("sorry, rserve only speaks QAP1", -1);
+        } else {
+            received_handshake = true;
+            if (opts.login)
+                result.login(opts.login);
+            result.running = true;
+            onconnect && onconnect.call(result);
         }
-        function enqueue(buffer, k, command) {
-            queue.push([buffer, function(result) {
-                awaiting_result = false;
-                bump_queue();
-                k(result);
-            }, command]);
-            bump_queue();
-        };
+    }
 
-        function _cmd(command, buffer, k, string) {
-            k = k || function() {};
-            var big_buffer = _encode_command(command, buffer);
-            return enqueue(big_buffer, k, string);
-        };
+    socket.onclose = function(msg) {
+        result.running = false;
+        result.closed = true;
+        opts.on_close && opts.on_close(msg);
+    };
 
-        result = {
-            running: false,
-            closed: false,
-            close: function() {
-                socket.close();
-            },
-            login: function(command, k) {
-                _cmd(Rserve.Rsrv.CMD_login, _encode_string(command), k, command);
-            },
-            eval: function(command, k) {
-                _cmd(Rserve.Rsrv.CMD_eval, _encode_string(command), k, command);
-            },
-            createFile: function(command, k) {
-                _cmd(Rserve.Rsrv.CMD_createFile, _encode_string(command), k, command);
-            },
-            writeFile: function(chunk, k) {
-                _cmd(Rserve.Rsrv.CMD_writeFile, _encode_bytes(chunk), k, "");
-            },
-            closeFile: function(k) {
-                _cmd(Rserve.Rsrv.CMD_closeFile, new ArrayBuffer(0), k, "");
+    socket.onmessage = function(msg) {
+        if (opts.debug)
+            opts.debug.message_in && opts.debug.message_in(msg);
+        if (!received_handshake) {
+            hand_shake(msg);
+            return;
+        } 
+        if (typeof msg.data === 'string') {
+            opts.on_raw_string && opts.on_raw_string(msg.data);
+            return;
+        }
+        // node.js Buffer vs ArrayBuffer workaround
+        if (msg.data.constructor.name === 'Buffer')
+            msg.data = (new Uint8Array(msg.data)).buffer;
+        var v = Rserve.parse_websocket_frame(msg.data);
+        if (!v.ok) {
+            handle_error(v.message, v.status_code);
+        } else if (v.header[0] === Rserve.Rsrv.RESP_OK) {
+            result_callback(v.payload);
+        } else if (v.header[0] === Rserve.Rsrv.OOB_SEND) {
+            opts.on_data && opts.on_data(v.payload);
+        } else if (v.header[0] === Rserve.Rsrv.OOB_MSG) {
+            if (_.isUndefined(opts.on_oob_message)) {
+                _send_cmd_now(Rserve.Rsrv.RESP_ERR | Rserve.Rsrv.OOB_MSG, 
+                              _encode_string("No handler installed"));
+            } else {
+                in_oob_message = true;
+                opts.on_oob_message(v.payload, function(message, error) {
+                    if (!in_oob_message) {
+                        handle_error("Don't call oob_message_handler more than once.");
+                        return;
+                    }
+                    in_oob_message = false;
+                    var header = Rserve.Rsrv.OOB_MSG | 
+                        (error ? Rserve.Rsrv.RESP_ERR : Rserve.Rsrv.RESP_OK);
+                    _send_cmd_now(header, _encode_string(message));
+                    bump_queue();
+                });
             }
-        };
-        return result;
+        } else {
+            handle_error("Internal Error, parse returned unexpected type " + v.header[0], -1);
+        }
+    };
+
+    function _send_cmd_now(command, buffer) {
+        var big_buffer = _encode_command(command, buffer);
+        if (opts.debug)
+            opts.debug.message_out && opts.debug.message_out(big_buffer[0], command);
+        socket.send(big_buffer);
+        return big_buffer;
+    };
+
+    var queue = [];
+    var in_oob_message = false;
+    var awaiting_result = false;
+    var result_callback;
+    function bump_queue() {
+        if (result.closed && queue.length) {
+            handle_error("Cannot send messages on a closed socket!", -1);
+        } else if (!awaiting_result && !in_oob_message && queue.length) {
+            var lst = queue.shift();
+            result_callback = lst[1];
+            awaiting_result = true;
+            if (opts.debug)
+                opts.debug.message_out && opts.debug.message_out(lst[0], lst[2]);
+            socket.send(lst[0]);
+        }
+    }
+    function enqueue(buffer, k, command) {
+        queue.push([buffer, function(result) {
+            awaiting_result = false;
+            bump_queue();
+            k(result);
+        }, command]);
+        bump_queue();
+    };
+
+    function _cmd(command, buffer, k, string) {
+        k = k || function() {};
+        var big_buffer = _encode_command(command, buffer);
+        return enqueue(big_buffer, k, string);
+    };
+
+    result = {
+        running: false,
+        closed: false,
+        close: function() {
+            socket.close();
+        },
+        login: function(command, k) {
+            _cmd(Rserve.Rsrv.CMD_login, _encode_string(command), k, command);
+        },
+        eval: function(command, k) {
+            _cmd(Rserve.Rsrv.CMD_eval, _encode_string(command), k, command);
+        },
+        createFile: function(command, k) {
+            _cmd(Rserve.Rsrv.CMD_createFile, _encode_string(command), k, command);
+        },
+        writeFile: function(chunk, k) {
+            _cmd(Rserve.Rsrv.CMD_writeFile, _encode_bytes(chunk), k, "");
+        },
+        closeFile: function(k) {
+            _cmd(Rserve.Rsrv.CMD_closeFile, new ArrayBuffer(0), k, "");
+        }
+    };
+    return result;
 };
 
 })();

@@ -7,6 +7,7 @@ main.js:					\
 	src/_begin_node.js			\
 	src/robj.js				\
 	src/rsrv.js				\
+	src/parse.js				\
 	src/endian_aware_dataview.js		\
 	src/rserve.js				\
 	src/error.js				\
@@ -17,6 +18,7 @@ rserve.js:					\
 	src/_begin.js				\
 	src/robj.js				\
 	src/rsrv.js				\
+	src/parse.js				\
 	src/endian_aware_dataview.js		\
 	src/rserve.js				\
 	src/error.js				\
