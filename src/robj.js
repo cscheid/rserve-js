@@ -158,6 +158,11 @@ Rserve.Robj = {
             else
                 return this.value;
         }
+    }),
+    string: make_basic("string", {
+        json: function() {
+            return this.value;
+        }
     })
 };
 

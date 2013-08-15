@@ -184,6 +184,8 @@ function reader(m)
     handlers[Rserve.Rsrv.XT_ARRAY_STR]    = that.read_string_array;
     handlers[Rserve.Rsrv.XT_ARRAY_BOOL]   = that.read_bool_array;
 
+    handlers[Rserve.Rsrv.XT_STR]          = sl(that.read_string, Rserve.Robj.string);
+
     return that;
 }
 
