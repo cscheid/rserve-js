@@ -2,8 +2,16 @@ Rserve = require('../main.js');
 
 s = Rserve.create({
     host: 'http://127.0.0.1:8081',
+    debug: {
+        message_in: function(msg) {
+            console.log(msg);
+        }
+    },
     on_connect: function() {
-        console.log(s.ocap_alpha.value.json());
+        console.log(s.ocap_alpha);
+        s.OCcall(s.ocap_alpha, [], function() {
+            console.log("ha!");
+        });
     }
 });
 

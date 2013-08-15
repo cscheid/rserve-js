@@ -545,7 +545,6 @@ function parse(msg)
     return result;
 }
 
-
 function parse_payload(msg)
 {
     var payload = Rserve.my_ArrayBufferView(msg, 16, msg.byteLength - 16);
@@ -735,13 +734,15 @@ function _encode_bytes(bytes) {
     return result;
 };
 
-function _encode_value(value)
+function _encode_value(value, forced_type)
 {
-    var sz = Rserve.determine_size(value);
+    if (!_.isUndefined(forced_type))
+        debugger;
+    var sz = Rserve.determine_size(value, forced_type);
     var buffer = new ArrayBuffer(sz + 4);
     var view = Rserve.my_ArrayBufferView(buffer);
     view.data_view().setInt32(0, Rserve.Rsrv.DT_SEXP + (sz << 8));
-    Rserve.write_into_view(value, view.skip(4));
+    Rserve.write_into_view(value, view.skip(4), forced_type);
     return buffer;
 }
 
@@ -782,7 +783,7 @@ Rserve.create = function(opts) {
 
             if (header === 'RsOC') {
                 result.ocap_mode = true;
-                result.ocap_alpha = Rserve.parse_payload(msg);
+                result.ocap_alpha = Rserve.parse_payload(msg).value;
                 result.running = true;
                 onconnect && onconnect.call(result);
             } else
@@ -903,11 +904,24 @@ Rserve.create = function(opts) {
         },
         set: function(key, value, k) {
             _cmd(Rserve.Rsrv.CMD_setSEXP, [_encode_string(key), _encode_value(value)], k, "");
+        }, 
+        OCcall: function(ocap, values, k) {
+            var is_ocap = false, str;
+            try {
+                is_ocap |= ocap.r_attributes['class'] === 'OCref';
+                str = ocap[0];
+            } catch (e) {};
+            try {
+                is_ocap |= ocap.attributes.value[0].value.value[0] === 'OCref';
+                str = ocap.value[0];
+            } catch (e) {};
+            if (!is_ocap)
+                throw new Error("Expected an ocap, instead got " + ocap);
+            var params = [str];
+            params.push.apply(params, values);
+            _cmd(Rserve.Rsrv.CMD_OCcall, _encode_value(params, Rserve.Rsrv.XT_LANG_NOTAG),
+                 "");
         }
-        // , 
-        // ocap: function(ocap, values, k) {
-        //     _cmd(Rserve.Rsrv.CMD_
-        // }
     };
     return result;
 };
@@ -960,15 +974,15 @@ Rserve.type_id = function(value)
 };
 
 // FIXME this is really slow, as it's walking the object many many times.
-Rserve.determine_size = function(value)
+Rserve.determine_size = function(value, forced_type)
 {
     function list_size(lst) {
         return _.reduce(lst, function(memo, el) {
             return memo + Rserve.determine_size(el);
         }, 0);
     }
-    var header_size = 4, t;
-    switch ((t = Rserve.type_id(value))) {
+    var header_size = 4, t = forced_type || Rserve.type_id(value);
+    switch (t) {
     case Rserve.Rsrv.XT_NULL:
         return header_size + 0;
     case Rserve.Rsrv.XT_BOOL:
@@ -988,6 +1002,7 @@ Rserve.determine_size = function(value)
     case Rserve.Rsrv.XT_RAW:
         return header_size + value.length;
     case Rserve.Rsrv.XT_VECTOR:
+    case Rserve.Rsrv.XT_LANG_NOTAG:
         return header_size + list_size(value);
     case Rserve.Rsrv.XT_VECTOR | Rserve.Rsrv.XT_HAS_ATTR:
         debugger;
@@ -1001,12 +1016,12 @@ Rserve.determine_size = function(value)
     }
 };
 
-Rserve.write_into_view = function(value, array_buffer_view)
+Rserve.write_into_view = function(value, array_buffer_view, forced_type)
 {
-    var size = Rserve.determine_size(value);
+    var size = Rserve.determine_size(value, forced_type);
     if (size > 16777215)
         throw new Rserve.RserveError("Can't currently handle objects >16MB");
-    var t = Rserve.type_id(value), i, current_offset;
+    var t = forced_type || Rserve.type_id(value), i, current_offset;
     var read_view;
     var write_view = array_buffer_view.data_view();
     write_view.setInt32(0, t + ((size - 4) << 8));
@@ -1044,6 +1059,7 @@ Rserve.write_into_view = function(value, array_buffer_view)
             write_view.setUint8(4 + i, read_view.getUint8(value, i));
         break;
     case Rserve.Rsrv.XT_VECTOR:
+    case Rserve.Rsrv.XT_LANG_NOTAG:
         current_offset = 4;
         _.each(value, function(el) {
             var sz = Rserve.determine_size(el);
@@ -1053,7 +1069,6 @@ Rserve.write_into_view = function(value, array_buffer_view)
         });
         break;
     case Rserve.Rsrv.XT_VECTOR | Rserve.Rsrv.XT_HAS_ATTR:
-
         current_offset = 12;
         _.each(_.keys(value), function(el) {
             for (var i=0; i<el.length; ++i, ++current_offset)

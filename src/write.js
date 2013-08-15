@@ -37,15 +37,15 @@ Rserve.type_id = function(value)
 };
 
 // FIXME this is really slow, as it's walking the object many many times.
-Rserve.determine_size = function(value)
+Rserve.determine_size = function(value, forced_type)
 {
     function list_size(lst) {
         return _.reduce(lst, function(memo, el) {
             return memo + Rserve.determine_size(el);
         }, 0);
     }
-    var header_size = 4, t;
-    switch ((t = Rserve.type_id(value))) {
+    var header_size = 4, t = forced_type || Rserve.type_id(value);
+    switch (t) {
     case Rserve.Rsrv.XT_NULL:
         return header_size + 0;
     case Rserve.Rsrv.XT_BOOL:
@@ -65,6 +65,7 @@ Rserve.determine_size = function(value)
     case Rserve.Rsrv.XT_RAW:
         return header_size + value.length;
     case Rserve.Rsrv.XT_VECTOR:
+    case Rserve.Rsrv.XT_LANG_NOTAG:
         return header_size + list_size(value);
     case Rserve.Rsrv.XT_VECTOR | Rserve.Rsrv.XT_HAS_ATTR:
         debugger;
@@ -78,12 +79,12 @@ Rserve.determine_size = function(value)
     }
 };
 
-Rserve.write_into_view = function(value, array_buffer_view)
+Rserve.write_into_view = function(value, array_buffer_view, forced_type)
 {
-    var size = Rserve.determine_size(value);
+    var size = Rserve.determine_size(value, forced_type);
     if (size > 16777215)
         throw new Rserve.RserveError("Can't currently handle objects >16MB");
-    var t = Rserve.type_id(value), i, current_offset;
+    var t = forced_type || Rserve.type_id(value), i, current_offset;
     var read_view;
     var write_view = array_buffer_view.data_view();
     write_view.setInt32(0, t + ((size - 4) << 8));
@@ -121,6 +122,7 @@ Rserve.write_into_view = function(value, array_buffer_view)
             write_view.setUint8(4 + i, read_view.getUint8(value, i));
         break;
     case Rserve.Rsrv.XT_VECTOR:
+    case Rserve.Rsrv.XT_LANG_NOTAG:
         current_offset = 4;
         _.each(value, function(el) {
             var sz = Rserve.determine_size(el);
@@ -130,7 +132,6 @@ Rserve.write_into_view = function(value, array_buffer_view)
         });
         break;
     case Rserve.Rsrv.XT_VECTOR | Rserve.Rsrv.XT_HAS_ATTR:
-
         current_offset = 12;
         _.each(_.keys(value), function(el) {
             for (var i=0; i<el.length; ++i, ++current_offset)
