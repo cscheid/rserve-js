@@ -14,6 +14,10 @@ function make_basic(type, proto) {
         json: function() {
             var result = proto.json.call(this);
             result.r_type = type;
+            if (!_.isUndefined(this.attributes))
+                result.r_attributes = _.object(_.map(
+                    this.attributes.value,
+                    function(v) { return [v.name, v.value.json()]; }));
             return result;
         }
     };
@@ -141,7 +145,7 @@ Rserve.Robj = {
     }),
     double_array: make_basic("double_array", {
         json: function() {
-            if (this.value.length === 1)
+            if (this.value.length === 1 && _.isUndefined(this.attributes))
                 return this.value[0];
             else
                 return this.value;
@@ -149,7 +153,7 @@ Rserve.Robj = {
     }),
     string_array: make_basic("string_array", {
         json: function() {
-            if (this.value.length === 1)
+            if (this.value.length === 1 && _.isUndefined(this.attributes))
                 return this.value[0];
             else
                 return this.value;
@@ -157,7 +161,7 @@ Rserve.Robj = {
     }),
     bool_array: make_basic("bool_array", {
         json: function() {
-            if (this.value.length === 1)
+            if (this.value.length === 1 && _.isUndefined(this.attributes))
                 return this.value[0];
             else
                 return this.value;
@@ -168,6 +172,13 @@ Rserve.Robj = {
             return this.value;
         }
     })
+};
+
+Rserve.to_javascript = function(value)
+{
+    if (value.type === 'sexp') {
+        return value.json();
+    }
 };
 
 })();
@@ -314,7 +325,7 @@ Rserve.Rsrv = {
 };
 (function() {
 
-function reader(m)
+function read(m)
 {
     var handlers = {};
     var _;
@@ -527,17 +538,19 @@ function parse(msg)
         return result;
     }
     result.ok = true;
-    var payload = Rserve.my_ArrayBufferView(msg, 16, msg.byteLength - 16);
-    if (payload.length === 0) {
-        result.payload = null;
-    } else {
-        result.payload = parse_payload(reader(payload));
-    }
+    result.payload = parse_payload(msg);
     return result;
 }
 
-function parse_payload(reader)
+
+function parse_payload(msg)
 {
+    var payload = Rserve.my_ArrayBufferView(msg, 16, msg.byteLength - 16);
+    if (payload.length === 0)
+        return null;
+
+    var reader = read(payload);
+
     var d = reader.read_int();
     var _ = Rserve.Rsrv.par_parse(d);
     var t = _[0], l = _[1];
@@ -556,6 +569,7 @@ function parse_payload(reader)
 }
 
 Rserve.parse_websocket_frame = parse;
+Rserve.parse_payload = parse_payload;
 
 })();
 // we want an endian aware dataview mostly because ARM can be big-endian, and
@@ -742,18 +756,34 @@ Rserve.create = function(opts) {
     function hand_shake(msg)
     {
         msg = msg.data;
-        if (msg.substr(0,4) !== 'Rsrv') {
-            handle_error("server is not an RServe instance", -1);
-        } else if (msg.substr(4, 4) !== '0103') {
-            handle_error("sorry, rserve only speaks the 0103 version of the R server protocol", -1);
-        } else if (msg.substr(8, 4) !== 'QAP1') {
-            handle_error("sorry, rserve only speaks QAP1", -1);
+        if (typeof msg === 'string') {
+            if (msg.substr(0,4) !== 'Rsrv') {
+                handle_error("server is not an RServe instance", -1);
+            } else if (msg.substr(4, 4) !== '0103') {
+                handle_error("sorry, rserve only speaks the 0103 version of the R server protocol", -1);
+            } else if (msg.substr(8, 4) !== 'QAP1') {
+                handle_error("sorry, rserve only speaks QAP1", -1);
+            } else {
+                received_handshake = true;
+                if (opts.login)
+                    result.login(opts.login);
+                result.running = true;
+                onconnect && onconnect.call(result);
+            }
         } else {
-            received_handshake = true;
-            if (opts.login)
-                result.login(opts.login);
-            result.running = true;
-            onconnect && onconnect.call(result);
+            var view = new DataView(msg);
+            var header = String.fromCharCode(view.getUint8(0)) + 
+                String.fromCharCode(view.getUint8(1)) + 
+                String.fromCharCode(view.getUint8(2)) + 
+                String.fromCharCode(view.getUint8(3));
+
+            if (header === 'RsOC') {
+                result.ocap_mode = true;
+                result.ocap_alpha = Rserve.parse_payload(msg);
+                result.running = true;
+                onconnect && onconnect.call(result);
+            } else
+                handle_error("Unrecognized server answer: " + header, -1);
         }
     }
 
@@ -764,6 +794,9 @@ Rserve.create = function(opts) {
     };
 
     socket.onmessage = function(msg) {
+        // node.js Buffer vs ArrayBuffer workaround
+        if (msg.data.constructor.name === 'Buffer')
+            msg.data = (new Uint8Array(msg.data)).buffer;
         if (opts.debug)
             opts.debug.message_in && opts.debug.message_in(msg);
         if (!received_handshake) {
@@ -774,9 +807,6 @@ Rserve.create = function(opts) {
             opts.on_raw_string && opts.on_raw_string(msg.data);
             return;
         }
-        // node.js Buffer vs ArrayBuffer workaround
-        if (msg.data.constructor.name === 'Buffer')
-            msg.data = (new Uint8Array(msg.data)).buffer;
         var v = Rserve.parse_websocket_frame(msg.data);
         if (!v.ok) {
             handle_error(v.message, v.status_code);
@@ -847,6 +877,7 @@ Rserve.create = function(opts) {
     };
 
     result = {
+        ocap_mode: false,
         running: false,
         closed: false,
         close: function() {
@@ -870,6 +901,10 @@ Rserve.create = function(opts) {
         set: function(key, value, k) {
             _cmd(Rserve.Rsrv.CMD_setSEXP, [_encode_string(key), _encode_value(value)], k, "");
         }
+        // , 
+        // ocap: function(ocap, values, k) {
+        //     _cmd(Rserve.Rsrv.CMD_
+        // }
     };
     return result;
 };

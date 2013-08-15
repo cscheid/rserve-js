@@ -1,6 +1,6 @@
 (function() {
 
-function reader(m)
+function read(m)
 {
     var handlers = {};
     var _;
@@ -213,17 +213,18 @@ function parse(msg)
         return result;
     }
     result.ok = true;
-    var payload = Rserve.my_ArrayBufferView(msg, 16, msg.byteLength - 16);
-    if (payload.length === 0) {
-        result.payload = null;
-    } else {
-        result.payload = parse_payload(reader(payload));
-    }
+    result.payload = parse_payload(msg);
     return result;
 }
 
-function parse_payload(reader)
+function parse_payload(msg)
 {
+    var payload = Rserve.my_ArrayBufferView(msg, 16, msg.byteLength - 16);
+    if (payload.length === 0)
+        return null;
+
+    var reader = read(payload);
+
     var d = reader.read_int();
     var _ = Rserve.Rsrv.par_parse(d);
     var t = _[0], l = _[1];
@@ -242,5 +243,6 @@ function parse_payload(reader)
 }
 
 Rserve.parse_websocket_frame = parse;
+Rserve.parse_payload = parse_payload;
 
 })();

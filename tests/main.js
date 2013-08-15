@@ -34,7 +34,7 @@ function test()
         function(k) { s.set('x', {a:1, b:2}, k); },
         function(k) { s.eval('x', k); },
         function(k) {
-            console.log("All pass!");
+            console.log("All run!");
             process.exit(0);
         }
     ]);

@@ -69,18 +69,34 @@ Rserve.create = function(opts) {
     function hand_shake(msg)
     {
         msg = msg.data;
-        if (msg.substr(0,4) !== 'Rsrv') {
-            handle_error("server is not an RServe instance", -1);
-        } else if (msg.substr(4, 4) !== '0103') {
-            handle_error("sorry, rserve only speaks the 0103 version of the R server protocol", -1);
-        } else if (msg.substr(8, 4) !== 'QAP1') {
-            handle_error("sorry, rserve only speaks QAP1", -1);
+        if (typeof msg === 'string') {
+            if (msg.substr(0,4) !== 'Rsrv') {
+                handle_error("server is not an RServe instance", -1);
+            } else if (msg.substr(4, 4) !== '0103') {
+                handle_error("sorry, rserve only speaks the 0103 version of the R server protocol", -1);
+            } else if (msg.substr(8, 4) !== 'QAP1') {
+                handle_error("sorry, rserve only speaks QAP1", -1);
+            } else {
+                received_handshake = true;
+                if (opts.login)
+                    result.login(opts.login);
+                result.running = true;
+                onconnect && onconnect.call(result);
+            }
         } else {
-            received_handshake = true;
-            if (opts.login)
-                result.login(opts.login);
-            result.running = true;
-            onconnect && onconnect.call(result);
+            var view = new DataView(msg);
+            var header = String.fromCharCode(view.getUint8(0)) + 
+                String.fromCharCode(view.getUint8(1)) + 
+                String.fromCharCode(view.getUint8(2)) + 
+                String.fromCharCode(view.getUint8(3));
+
+            if (header === 'RsOC') {
+                result.ocap_mode = true;
+                result.ocap_alpha = Rserve.parse_payload(msg);
+                result.running = true;
+                onconnect && onconnect.call(result);
+            } else
+                handle_error("Unrecognized server answer: " + header, -1);
         }
     }
 
@@ -91,6 +107,9 @@ Rserve.create = function(opts) {
     };
 
     socket.onmessage = function(msg) {
+        // node.js Buffer vs ArrayBuffer workaround
+        if (msg.data.constructor.name === 'Buffer')
+            msg.data = (new Uint8Array(msg.data)).buffer;
         if (opts.debug)
             opts.debug.message_in && opts.debug.message_in(msg);
         if (!received_handshake) {
@@ -101,9 +120,6 @@ Rserve.create = function(opts) {
             opts.on_raw_string && opts.on_raw_string(msg.data);
             return;
         }
-        // node.js Buffer vs ArrayBuffer workaround
-        if (msg.data.constructor.name === 'Buffer')
-            msg.data = (new Uint8Array(msg.data)).buffer;
         var v = Rserve.parse_websocket_frame(msg.data);
         if (!v.ok) {
             handle_error(v.message, v.status_code);
@@ -174,6 +190,7 @@ Rserve.create = function(opts) {
     };
 
     result = {
+        ocap_mode: false,
         running: false,
         closed: false,
         close: function() {
@@ -197,6 +214,10 @@ Rserve.create = function(opts) {
         set: function(key, value, k) {
             _cmd(Rserve.Rsrv.CMD_setSEXP, [_encode_string(key), _encode_value(value)], k, "");
         }
+        // , 
+        // ocap: function(ocap, values, k) {
+        //     _cmd(Rserve.Rsrv.CMD_
+        // }
     };
     return result;
 };

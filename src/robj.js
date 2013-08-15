@@ -10,6 +10,10 @@ function make_basic(type, proto) {
         json: function() {
             var result = proto.json.call(this);
             result.r_type = type;
+            if (!_.isUndefined(this.attributes))
+                result.r_attributes = _.object(_.map(
+                    this.attributes.value,
+                    function(v) { return [v.name, v.value.json()]; }));
             return result;
         }
     };
@@ -137,7 +141,7 @@ Rserve.Robj = {
     }),
     double_array: make_basic("double_array", {
         json: function() {
-            if (this.value.length === 1)
+            if (this.value.length === 1 && _.isUndefined(this.attributes))
                 return this.value[0];
             else
                 return this.value;
@@ -145,7 +149,7 @@ Rserve.Robj = {
     }),
     string_array: make_basic("string_array", {
         json: function() {
-            if (this.value.length === 1)
+            if (this.value.length === 1 && _.isUndefined(this.attributes))
                 return this.value[0];
             else
                 return this.value;
@@ -153,7 +157,7 @@ Rserve.Robj = {
     }),
     bool_array: make_basic("bool_array", {
         json: function() {
-            if (this.value.length === 1)
+            if (this.value.length === 1 && _.isUndefined(this.attributes))
                 return this.value[0];
             else
                 return this.value;
@@ -164,6 +168,13 @@ Rserve.Robj = {
             return this.value;
         }
     })
+};
+
+Rserve.to_javascript = function(value)
+{
+    if (value.type === 'sexp') {
+        return value.json();
+    }
 };
 
 })();
