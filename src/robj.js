@@ -170,11 +170,4 @@ Rserve.Robj = {
     })
 };
 
-Rserve.to_javascript = function(value)
-{
-    if (value.type === 'sexp') {
-        return value.json();
-    }
-};
-
 })();

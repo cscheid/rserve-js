@@ -174,13 +174,6 @@ Rserve.Robj = {
     })
 };
 
-Rserve.to_javascript = function(value)
-{
-    if (value.type === 'sexp') {
-        return value.json();
-    }
-};
-
 })();
 // Simple constants and functions are defined here,
 // in correspondence with Rserve's Rsrv.h
@@ -779,8 +772,10 @@ Rserve.create = function(opts) {
                 String.fromCharCode(view.getUint8(3));
 
             if (header === 'RsOC') {
+                received_handshake = true;
                 result.ocap_mode = true;
-                result.ocap_alpha = Rserve.parse_payload(msg).value;
+                result.bare_ocap = Rserve.parse_payload(msg).value;
+                result.ocap = Rserve.wrap_ocap(result, result.bare_ocap);
                 result.running = true;
                 onconnect && onconnect.call(result);
             } else
@@ -917,10 +912,45 @@ Rserve.create = function(opts) {
             var params = [str];
             params.push.apply(params, values);
             _cmd(Rserve.Rsrv.CMD_OCcall, _encode_value(params, Rserve.Rsrv.XT_LANG_NOTAG),
+                 k,
                  "");
         }
     };
     return result;
+};
+
+Rserve.wrap_all_ocaps = function(s, v) {
+    v = v.value.json();
+    function replace(obj) {
+        var result = obj;
+        if (_.isArray(obj) &&
+            obj.r_attributes &&
+            obj.r_attributes['class'] == 'OCref')
+            return Rserve.wrap_ocap(s, obj);
+        if (_.isObject(obj)) {
+            result = _.object(_.map(obj, function(v, k) {
+                return [k, replace(v)];
+            }));
+        } else if (_.isArray(obj)) {
+            result = _.map(obj, replace);
+            result.r_type = obj.r_type;
+            result.r_attributes = obj.r_attributes;
+        }
+        return result;
+    }
+    return replace(v);
+};
+
+Rserve.wrap_ocap = function(s, ocap) {
+    var wrapped_ocap = function() {
+        var values = _.toArray(arguments);
+        var k = values.pop();
+        s.OCcall(ocap, values, function(v) {
+            k(Rserve.wrap_all_ocaps(s, v));
+        });
+    };
+    wrapped_ocap.bare_ocap = ocap;
+    return wrapped_ocap;
 };
 
 })();
