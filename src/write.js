@@ -21,11 +21,11 @@ Rserve.type_id = function(value)
 
     // arbitrary lists
     if (_.isArray(value))
-        return Rserve.Rsrv.XT_LIST_NOTAG;
+        return Rserve.Rsrv.XT_VECTOR;
 
-    // objects
-    if (_.isObject(value))
-        return Rserve.Rsrv.XT_LIST_TAG;
+    // // objects
+    // if (_.isObject(value))
+    //     return Rserve.Rsrv.XT_VECTOR | Rserve.Rsrv.XT_HAS_ATTR;
 
     throw new Rserve.RServeError("Value type unrecognized by Rserve: " + value);
 };
@@ -42,6 +42,8 @@ Rserve.determine_size = function(value)
     switch ((t = Rserve.type_id(value))) {
     case Rserve.Rsrv.XT_NULL:
         return header_size + 0;
+    case Rserve.Rsrv.XT_DOUBLE:
+        return header_size + 8;
     case Rserve.Rsrv.XT_BOOL:
         return header_size + 1;
     case Rserve.Rsrv.XT_STR:
@@ -50,28 +52,31 @@ Rserve.determine_size = function(value)
         return header_size + 8 * value.length;
     case Rserve.Rsrv.XT_RAW:
         return header_size + value.length;
-    case Rserve.Rsrv.XT_LIST_NOTAG:
+    case Rserve.Rsrv.XT_VECTOR:
         return header_size + list_size(value);
-    case Rserve.Rsrv.XT_LIST_TAG:
-        return header_size + list_size(_.values(value))
-            + list_size(_.keys(value));
+    // case Rserve.Rsrv.XT_VECTOR | Rserve.Rsrv.XT_HAS_ATTR:
+    //     return header_size + list_size(_.values(value))
+    //         + list_size(_.keys(value));
     default:
         throw new Rserve.RserveError("Internal error, can't handle type " + t);
     }
 };
 
-// FIXME this is really slow, as it's walking the object many many times.
-Rserve.write_into_view = function(value, write_view)
+Rserve.write_into_view = function(value, array_buffer_view)
 {
-    var t = Rserve.type_id(value), i, current_offset;
-    var read_view;
     var size = Rserve.determine_size(value);
     if (size > 16777215)
         throw new Rserve.RserveError("Can't currently handle objects >16MB");
+    var t = Rserve.type_id(value), i, current_offset;
+    var read_view;
+    var write_view = array_buffer_view.data_view();
     write_view.setInt32(0, t + ((size - 4) << 8));
 
     switch (t) {
     case Rserve.Rsrv.XT_NULL:
+        break;
+    case Rserve.Rsrv.XT_DOUBLE:
+        write_view.setFloat64(4, value);
         break;
     case Rserve.Rsrv.XT_BOOL:
         write_view.setInt8(4, value ? 1 : 0);
@@ -90,34 +95,30 @@ Rserve.write_into_view = function(value, write_view)
         for (i=0; i<value.length; ++i)
             write_view.setUint8(4 + i, read_view.getUint8(value, i));
         break;
-    case Rserve.Rsrv.XT_LIST_NOTAG:
+    case Rserve.Rsrv.XT_VECTOR:
         current_offset = 4;
         _.each(value, function(el) {
             var sz = Rserve.determine_size(el);
-            Rserve.write_into_buffer(el, write_view.make(
-                Rserve.EndianAwareDataView, 
-                current_offset,
-                sz));
+            Rserve.write_into_view(el, array_buffer_view.skip(
+                current_offset));
             current_offset += sz;
         });
         break;
-    case Rserve.Rsrv.XT_LIST_TAG:
-        current_offset = 4;
-        _.each(value, function(el_value, el_key) {
-            var sz_key = Rserve.determine_size(el_key);
-            var sz_value = Rserve.determine_size(el_value);
-            Rserve.write_into_buffer(el_key, write_view.make(
-                Rserve.EndianAwareDataView, 
-                current_offset,
-                sz_key));
-            current_offset += sz_key;
-            Rserve.write_into_buffer(el_value, write_view.make(
-                Rserve.EndianAwareDataView, 
-                current_offset,
-                sz_value));
-            current_offset += sz_value;
-        });
-        break;
+    // case Rserve.Rsrv.XT_VECTOR | Rserve.Rsrv.XT_HAS_ATTR:
+    //     current_offset = 4;
+    //     _.each(value, function(el_value, el_key) {
+    //         var sz_key = Rserve.determine_size(el_key);
+    //         var sz_value = Rserve.determine_size(el_value);
+    //         Rserve.write_into_view(el_value, array_buffer_view.view(
+    //             current_offset,
+    //             sz_value));
+    //         current_offset += sz_value;
+    //         Rserve.write_into_view(el_key, array_buffer_view.view(
+    //             current_offset,
+    //             sz_key));
+    //         current_offset += sz_key;
+    //     });
+    //     break;
     default:
         throw new Rserve.RserveError("Internal error, can't handle type " + t);
     }

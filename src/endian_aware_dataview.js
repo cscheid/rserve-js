@@ -74,6 +74,10 @@
             buffer: b,
             offset: o,
             length: l,
+            data_view: function() {
+                return new Rserve.EndianAwareDataView(this.buffer, this.offset, 
+                                                      this.buffer.byteLength - this.offset);
+            },
             make: function(ctor, new_offset, new_length) { 
                 new_offset = _.isUndefined(new_offset) ? 0 : new_offset;
                 new_length = _.isUndefined(new_length) ? this.length : new_length;
@@ -93,9 +97,14 @@
                                     n_els);
                 }
             },
+            skip: function(offset) {
+                return Rserve.my_ArrayBufferView(
+                    this.buffer, this.offset + offset, this.buffer.byteLength);
+            },
             view: function(new_offset, new_length) {
                 // FIXME Needs bounds checking
-                return Rserve.my_ArrayBufferView(this.buffer, this.offset + new_offset, new_length);
+                return Rserve.my_ArrayBufferView(
+                    this.buffer, this.offset + new_offset, new_length);
             }
         };
     };

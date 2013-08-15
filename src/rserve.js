@@ -50,12 +50,8 @@ function _encode_value(value)
     var sz = Rserve.determine_size(value);
     var buffer = new ArrayBuffer(sz + 4);
     var view = Rserve.my_ArrayBufferView(buffer);
-    view.make(Rserve.EndianAwareDataView).setInt32(0, Rserve.Rsrv.DT_SEXP + (sz << 8));
-    Rserve.write_into_view(value, view.make(Rserve.EndianAwareDataView, 4, sz));
-    console.log("value: ", value);
-    console.log("type: ", Rserve.type_id(value), Rserve.Rsrv.XT_ARRAY_DOUBLE);
-    console.log("size: ", sz);
-    console.log("buffer: ", buffer);
+    view.data_view().setInt32(0, Rserve.Rsrv.DT_SEXP + (sz << 8));
+    Rserve.write_into_view(value, view.skip(4));
     return buffer;
 }
 
