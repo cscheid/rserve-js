@@ -1,4 +1,4 @@
-hello.world <- function()
+first.caps <- function()
 {
   x <- 3
   cat("INIT!\n")
@@ -13,12 +13,15 @@ hello.world <- function()
   }))
 }
 
+####################################################################################################
+# make.oc turns a function into an object capability accessible from the remote side
 make.oc <- function(fun)
 {
   .Call("Rserve_oc_register", fun)
 }
 
+# oc.init must return the first capability accessible to the remote side
 oc.init <- function()
 {
-  make.oc(hello.world)
+  make.oc(first.caps)
 }
