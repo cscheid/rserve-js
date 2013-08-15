@@ -4,19 +4,29 @@ s = Rserve.create({
     host: 'http://127.0.0.1:8081',
     on_connect: test,
     debug: {
-        message_out: function(v, cmd) {
+        message_out: function(v) {
             console.log(v);
         }
     }
 });
 
+function sequence_(lst)
+{
+    function do_it(i) {
+        if (i === lst.length)
+            return;
+        lst[i](function() { 
+            do_it(i+1);
+        });
+    }
+    do_it(0);
+}
+
 function test()
 {
-    s.eval('rnorm(100)', function(x) { 
-        console.log("rnorm eval'ed");
-    });
-    s.set('x', new Float32Array([1,2,3,4]), function(x) {
-        s.eval('x + x', function(v) {
+    s.set('x', {a:1, b:2}, function() {
+        s.eval('x', function(v) {
+            console.log(v);
             console.log(v.value.json());
         });
     });

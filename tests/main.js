@@ -30,6 +30,12 @@ function test()
         function(k) { s.eval('z', k); },
         function(k) { s.eval('print(c(z))', k); },
         function(k) { s.eval('cat(z)', k); },
-        function(k) { s.eval('print(z)', k); }
+        function(k) { s.eval('print(z)', k); },
+        function(k) { s.set('x', {a:1, b:2}, k); },
+        function(k) { s.eval('x', k); },
+        function(k) {
+            console.log("All pass!");
+            process.exit(0);
+        }
     ]);
 }

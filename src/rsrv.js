@@ -116,13 +116,6 @@ Rserve.Rsrv = {
     // # FIXME A WHOLE LOT OF MACROS HERE WHICH ARE PROBABLY IMPORTANT
     // ##############################################################################
 
-    itop: function(x) { return x; },
-    ptoi: function(x) { return x; },
-    dtop: function(x) { return x; },
-    ptod: function(x) { return x; },
-
-    fixdcpy: function() { throw new Rserve.RserveError("unimplemented", -1); },
-
     status_codes: {
         0x41 : "ERR_auth_failed"   ,
         0x42 : "ERR_conn_broken"   ,

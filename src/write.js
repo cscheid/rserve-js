@@ -7,8 +7,8 @@ Rserve.type_id = function(value)
         return Rserve.Rsrv.XT_NULL;
     var type_dispatch = {
         "boolean": Rserve.Rsrv.XT_BOOL,
-        "number": Rserve.Rsrv.XT_DOUBLE,
-        "string": Rserve.Rsrv.XT_ARRAY_STR
+        "number": Rserve.Rsrv.XT_ARRAY_DOUBLE,
+        "string": Rserve.Rsrv.XT_ARRAY_STR // base strings need to be array_str or R gets confused?
     };
     if (!_.isUndefined(type_dispatch[typeof value]))
         return type_dispatch[typeof value];
@@ -48,26 +48,31 @@ Rserve.determine_size = function(value)
     switch ((t = Rserve.type_id(value))) {
     case Rserve.Rsrv.XT_NULL:
         return header_size + 0;
-    case Rserve.Rsrv.XT_DOUBLE:
-        return header_size + 8;
     case Rserve.Rsrv.XT_BOOL:
         return header_size + 1;
     case Rserve.Rsrv.XT_ARRAY_STR:
         if (_.isArray(value))
             return header_size + _.reduce(value, function(memo, str) {
-                return memo + value.length + 1;
+                return memo + str.length + 1;
             }, 0);
         else
             return header_size + value.length + 1;
     case Rserve.Rsrv.XT_ARRAY_DOUBLE:
-        return header_size + 8 * value.length;
+        if (_.isNumber(value))
+            return header_size + 8;
+        else
+            return header_size + 8 * value.length;
     case Rserve.Rsrv.XT_RAW:
         return header_size + value.length;
     case Rserve.Rsrv.XT_VECTOR:
         return header_size + list_size(value);
     case Rserve.Rsrv.XT_VECTOR | Rserve.Rsrv.XT_HAS_ATTR:
-        return header_size + list_size(_.values(value))
-            + list_size(_.keys(value));
+        debugger;
+        return header_size // XT_VECTOR | XT_HAS_ATTR
+            + header_size // XT_LIST_TAG (attribute)
+              + header_size + "names".length + 3 // length of 'names' + padding (tag as XT_STR)
+              + Rserve.determine_size(_.keys(value)) // length of names
+            + list_size(_.values(value)); // length of values
     default:
         throw new Rserve.RserveError("Internal error, can't handle type " + t);
     }
@@ -86,9 +91,6 @@ Rserve.write_into_view = function(value, array_buffer_view)
     switch (t) {
     case Rserve.Rsrv.XT_NULL:
         break;
-    case Rserve.Rsrv.XT_DOUBLE:
-        write_view.setFloat64(4, value);
-        break;
     case Rserve.Rsrv.XT_BOOL:
         write_view.setInt8(4, value ? 1 : 0);
         break;
@@ -97,7 +99,7 @@ Rserve.write_into_view = function(value, array_buffer_view)
             var offset = 4;
             _.each(value, function(el) {
                 for (var i=0; i<el.length; ++i, ++offset)
-                    write_view.setUint8(offset, value.charCodeAt(i));
+                    write_view.setUint8(offset, el.charCodeAt(i));
                 write_view.setUint8(offset++, 0);
             });
         } else {
@@ -107,8 +109,11 @@ Rserve.write_into_view = function(value, array_buffer_view)
         }
         break;
     case Rserve.Rsrv.XT_ARRAY_DOUBLE:
-        for (i=0; i<value.length; ++i)
-            write_view.setFloat64(4 + 8 * i, value[i]);
+        if (_.isNumber(value))
+            write_view.setFloat64(4, value);
+        else
+            for (i=0; i<value.length; ++i)
+                write_view.setFloat64(4 + 8 * i, value[i]);
         break;
     case Rserve.Rsrv.XT_RAW:
         read_view = new Rserve.EndianAwareDataView(value);
@@ -124,21 +129,32 @@ Rserve.write_into_view = function(value, array_buffer_view)
             current_offset += sz;
         });
         break;
-    // case Rserve.Rsrv.XT_VECTOR | Rserve.Rsrv.XT_HAS_ATTR:
-    //     current_offset = 4;
-    //     _.each(value, function(el_value, el_key) {
-    //         var sz_key = Rserve.determine_size(el_key);
-    //         var sz_value = Rserve.determine_size(el_value);
-    //         Rserve.write_into_view(el_value, array_buffer_view.view(
-    //             current_offset,
-    //             sz_value));
-    //         current_offset += sz_value;
-    //         Rserve.write_into_view(el_key, array_buffer_view.view(
-    //             current_offset,
-    //             sz_key));
-    //         current_offset += sz_key;
-    //     });
-    //     break;
+    case Rserve.Rsrv.XT_VECTOR | Rserve.Rsrv.XT_HAS_ATTR:
+
+        current_offset = 12;
+        _.each(_.keys(value), function(el) {
+            for (var i=0; i<el.length; ++i, ++current_offset)
+                write_view.setUint8(current_offset, el.charCodeAt(i));
+            write_view.setUint8(current_offset++, 0);
+        });
+        write_view.setUint32(8, Rserve.Rsrv.XT_ARRAY_STR + ((current_offset - 12) << 8));
+
+        write_view.setUint32(current_offset, Rserve.Rsrv.XT_SYMNAME + (8 << 8));
+        current_offset += 4;
+        var lbl = "names";
+        for (i=0; i<lbl.length; ++i, ++current_offset)
+            write_view.setUint8(current_offset, lbl.charCodeAt(i));
+        current_offset += 3;
+
+        write_view.setUint32(4, Rserve.Rsrv.XT_LIST_TAG + ((current_offset - 8) << 8));
+
+        _.each(_.values(value), function(el) {
+            var sz = Rserve.determine_size(el);
+            Rserve.write_into_view(el, array_buffer_view.skip(
+                current_offset));
+            current_offset += sz;
+        });
+        break;
     default:
         throw new Rserve.RserveError("Internal error, can't handle type " + t);
     }
