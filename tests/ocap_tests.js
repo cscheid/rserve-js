@@ -16,6 +16,8 @@ function test()
             // calls t2 function in hello.world result, in oc.init.R
             caps.t2(function(v) {
                 console.log(v);
+                console.log("All run!");
+                process.exit(0);
             });
         });
     });

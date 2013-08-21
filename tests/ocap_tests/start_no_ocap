@@ -1,2 +1,0 @@
-#!/bin/sh
-R --slave --no-restore --vanilla --file="regular_start.R"
