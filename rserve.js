@@ -740,6 +740,7 @@ Rserve.create = function(opts) {
     var host = opts.host;
     var onconnect = opts.on_connect;
     var socket = new WebSocket(host);
+    socket.binaryType = 'arraybuffer';
     var handle_error = opts.on_error || function(error) { throw new Rserve.RserveError(error, -1); };
 
     var received_handshake = false;
