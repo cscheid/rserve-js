@@ -928,16 +928,16 @@ Rserve.wrap_all_ocaps = function(s, v) {
         var result = obj;
         if (_.isArray(obj) &&
             obj.r_attributes &&
-            obj.r_attributes['class'] == 'OCref')
+            obj.r_attributes['class'] == 'OCref') {
             return Rserve.wrap_ocap(s, obj);
-        if (_.isObject(obj)) {
-            result = _.object(_.map(obj, function(v, k) {
-                return [k, replace(v)];
-            }));
         } else if (_.isArray(obj)) {
             result = _.map(obj, replace);
             result.r_type = obj.r_type;
             result.r_attributes = obj.r_attributes;
+        } else if (_.isObject(obj)) {
+            result = _.object(_.map(obj, function(v, k) {
+                return [k, replace(v)];
+            }));
         }
         return result;
     }
