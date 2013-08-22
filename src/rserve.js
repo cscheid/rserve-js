@@ -47,8 +47,6 @@ function _encode_bytes(bytes) {
 
 function _encode_value(value, forced_type)
 {
-    if (!_.isUndefined(forced_type))
-        debugger;
     var sz = Rserve.determine_size(value, forced_type);
     var buffer = new ArrayBuffer(sz + 4);
     var view = Rserve.my_ArrayBufferView(buffer);
