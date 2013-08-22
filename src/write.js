@@ -6,9 +6,9 @@ Rserve.type_id = function(value)
     if (_.isNull(value) || _.isUndefined(value))
         return Rserve.Rsrv.XT_NULL;
     var type_dispatch = {
-        "boolean": Rserve.Rsrv.XT_BOOL,
-        "number": Rserve.Rsrv.XT_ARRAY_DOUBLE,
-        "string": Rserve.Rsrv.XT_ARRAY_STR // base strings need to be array_str or R gets confused?
+        "boolean": Rserve.Rsrv.XT_ARRAY_BOOL,
+        "number":  Rserve.Rsrv.XT_ARRAY_DOUBLE,
+        "string":  Rserve.Rsrv.XT_ARRAY_STR // base strings need to be array_str or R gets confused?
     };
     if (!_.isUndefined(type_dispatch[typeof value]))
         return type_dispatch[typeof value];
@@ -24,6 +24,9 @@ Rserve.type_id = function(value)
     // lists of strings (important for tags)
     if (_.isArray(value) && _.all(value, function(el) { return typeof el === 'string'; }))
         return Rserve.Rsrv.XT_ARRAY_STR;
+
+    if (_.isArray(value) && _.all(value, function(el) { return typeof el === 'boolean'; }))
+        return Rserve.Rsrv.XT_ARRAY_BOOL;
 
     // arbitrary lists
     if (_.isArray(value))
@@ -48,8 +51,11 @@ Rserve.determine_size = function(value, forced_type)
     switch (t) {
     case Rserve.Rsrv.XT_NULL:
         return header_size + 0;
-    case Rserve.Rsrv.XT_BOOL:
-        return header_size + 1;
+    case Rserve.Rsrv.XT_ARRAY_BOOL:
+        if (_.isBoolean(value))
+            return header_size + 8;
+        else
+            return header_size + ((value.length + 7) & ~3);
     case Rserve.Rsrv.XT_ARRAY_STR:
         if (_.isArray(value))
             return header_size + _.reduce(value, function(memo, str) {
@@ -92,8 +98,15 @@ Rserve.write_into_view = function(value, array_buffer_view, forced_type)
     switch (t) {
     case Rserve.Rsrv.XT_NULL:
         break;
-    case Rserve.Rsrv.XT_BOOL:
-        write_view.setInt8(4, value ? 1 : 0);
+    case Rserve.Rsrv.XT_ARRAY_BOOL:
+        if (_.isBoolean(value)) {
+            write_view.setInt32(4, 1);
+            write_view.setInt8(8, value ? 1 : 0);
+        } else {
+            write_view.setInt32(4, value.length);
+            for (i=0; i<value.length; ++i)
+                write_view.setInt8(8 + i, value[i] ? 1 : 0);
+        }
         break;
     case Rserve.Rsrv.XT_ARRAY_STR:
         if (_.isArray(value)) {

@@ -23,6 +23,15 @@ function no_ocap_tests()
             function(k) { s.eval('print(z)', k); },
             function(k) { s.set('x', {a:1, b:2}, k); },
             function(k) { s.eval('x', k); },
+            function(k) { s.set('x', true, function() {
+                s.eval('x', function(v) {
+                    if (v.value.json() !== true) {
+                        console.log("Expected true, got ", v.value.json());
+                        // throw new Error("Test failed, true does not match");
+                    }
+                    k();
+                });
+            }); },
             function(k) {
                 console.log("All run!");
                 process.exit(0);

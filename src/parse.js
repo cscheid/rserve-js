@@ -3,7 +3,6 @@
 function read(m)
 {
     var handlers = {};
-    var _;
 
     function lift(f, amount) {
         return function(attributes, length) {
@@ -92,7 +91,9 @@ function read(m)
         read_bool_array: function(attributes, length) {
             var l2 = this.read_int();
             var s = this.read_stream(length-4);
-            var a = s.make(Uint8Array).subarray(0, l2);
+            var a = _.map(s.make(Uint8Array).subarray(0, l2), function(v) {
+                return v ? true : false;
+            });
             return [Rserve.Robj.bool_array(a, attributes), length];
         },
 
