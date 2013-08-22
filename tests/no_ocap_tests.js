@@ -15,7 +15,9 @@ function no_ocap_tests()
             function(k) { s.eval('print(a)', k); },
             function(k) { s.eval('rnorm(100)', k); },
             function(k) { s.set('y', [1,2], k); },
-            function(k) { s.set('x', new Float32Array([1,2,3,4]), k); },
+            function(k) {
+                s.set('x', new Float32Array([1,2,3,4]), k); 
+            },
             function(k) { s.set('z', "Hello, world!", k); },
             function(k) { s.eval('z', k); },
             function(k) { s.eval('print(c(z))', k); },

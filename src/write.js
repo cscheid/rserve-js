@@ -1,5 +1,11 @@
 (function () {
 
+_.mixin({
+    isTypedArray: function(v) {
+        return !_.isUndefined(v.byteLength) && !_.isUndefined(v.BYTES_PER_ELEMENT);
+    }
+});
+
 // type_id tries to match some javascript values to Rserve value types
 Rserve.type_id = function(value)
 {
@@ -14,7 +20,7 @@ Rserve.type_id = function(value)
         return type_dispatch[typeof value];
 
     // typed arrays
-    if (!_.isUndefined(value.byteLength) && !_.isUndefined(value.BYTES_PER_ELEMENT))
+    if (_.isTypedArray(value))
         return Rserve.Rsrv.XT_ARRAY_DOUBLE;
 
     // arraybuffers
@@ -74,7 +80,6 @@ Rserve.determine_size = function(value, forced_type)
     case Rserve.Rsrv.XT_LANG_NOTAG:
         return header_size + list_size(value);
     case Rserve.Rsrv.XT_VECTOR | Rserve.Rsrv.XT_HAS_ATTR:
-        debugger;
         return header_size // XT_VECTOR | XT_HAS_ATTR
             + header_size // XT_LIST_TAG (attribute)
               + header_size + "names".length + 3 // length of 'names' + padding (tag as XT_STR)

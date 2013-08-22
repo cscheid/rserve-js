@@ -251,6 +251,8 @@ Rserve.wrap_all_ocaps = function(s, v) {
             result = _.map(obj, replace);
             result.r_type = obj.r_type;
             result.r_attributes = obj.r_attributes;
+        } else if (_.isTypedArray(obj)) {
+            return result;
         } else if (_.isObject(obj)) {
             result = _.object(_.map(obj, function(v, k) {
                 return [k, replace(v)];
