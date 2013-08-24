@@ -755,7 +755,6 @@ Rserve.create = function(opts) {
     function convert_to_hash(value) {
         var hash = fresh_hash();
         captured_functions[hash] = value;
-        console.log("stored ", value, " at ", hash);
         return hash;
     }
 
@@ -833,22 +832,51 @@ Rserve.create = function(opts) {
         } else if (v.header[0] === Rserve.Rsrv.OOB_SEND) {
             opts.on_data && opts.on_data(v.payload);
         } else if (v.header[0] === Rserve.Rsrv.OOB_MSG) {
-            if (_.isUndefined(opts.on_oob_message)) {
-                _send_cmd_now(Rserve.Rsrv.RESP_ERR | Rserve.Rsrv.OOB_MSG, 
-                              _encode_string("No handler installed"));
-            } else {
-                in_oob_message = true;
-                opts.on_oob_message(v.payload, function(message, error) {
-                    if (!in_oob_message) {
-                        handle_error("Don't call oob_message_handler more than once.");
+            if (result.ocap_mode) {
+                var p = v.payload.value.json();
+                var c;
+                try {
+                    c = p[0].r_attributes['class'];
+                } catch (e) {};
+                if (_.isUndefined(c) || c !== 'javascript_function')
+                    _send_cmd_now(Rserve.Rsrv.RESP_ERR | Rserve.Rsrv.OOB_MSG, 
+                                  _encode_string("OOB Messages on ocap-mode must be javascript function calls"));
+                else {
+                    var params = p.slice(1);
+                    var hash = p[0][0];
+                    if (!(hash in captured_functions)) {
+                        _send_cmd_now(Rserve.Rsrv.RESP_ERR | Rserve.Rsrv.OOB_MSG, 
+                                      _encode_string("hash " + hash + " not found."));
                         return;
                     }
-                    in_oob_message = false;
-                    var header = Rserve.Rsrv.OOB_MSG | 
-                        (error ? Rserve.Rsrv.RESP_ERR : Rserve.Rsrv.RESP_OK);
-                    _send_cmd_now(header, _encode_string(message));
-                    bump_queue();
-                });
+                    var captured_function = captured_functions[hash];
+                    try {
+                        result = captured_function.apply(undefined, params);
+                        _send_cmd_now(Rserve.Rsrv.OOB_MSG,
+                                      _encode_value(result));
+                    } catch (e) {
+                        _send_cmd_now(Rserve.Rsrv.RESP_ERR | Rserve.Rsrv.OOB_MSG, 
+                                      _encode_string("javascript function raised exception " + String(e)));
+                    }
+                }
+            } else {
+                if (_.isUndefined(opts.on_oob_message)) {
+                    _send_cmd_now(Rserve.Rsrv.RESP_ERR | Rserve.Rsrv.OOB_MSG, 
+                                  _encode_string("No handler installed"));
+                } else {
+                    in_oob_message = true;
+                    opts.on_oob_message(v.payload, function(message, error) {
+                        if (!in_oob_message) {
+                            handle_error("Don't call oob_message_handler more than once.");
+                            return;
+                        }
+                        in_oob_message = false;
+                        var header = Rserve.Rsrv.OOB_MSG | 
+                            (error ? Rserve.Rsrv.RESP_ERR : Rserve.Rsrv.RESP_OK);
+                        _send_cmd_now(header, _encode_string(message));
+                        bump_queue();
+                    });
+                }
             }
         } else {
             handle_error("Internal Error, parse returned unexpected type " + v.header[0], -1);

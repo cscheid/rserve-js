@@ -11,15 +11,16 @@ function test()
     ocap(function(v) { 
         caps = v;
         caps.t1(5, function(v) {
-            console.log("huh?");
+            console.log("ok.");
         });
         debugger;
         caps.t3(function(x) {
-            console.log("This is a cap!");
+            console.log("This is running in javascript!");
             return 20 + x;
         }, function(v) {
             caps.t4(5, function(v) {
                 console.log("Result: ", v);
+                process.exit(0);
             });
         });
         // // calls t1 function from hello.world result, in oc.init.R
