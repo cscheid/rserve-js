@@ -10,16 +10,28 @@ function test()
     var ocap = s.ocap, caps;
     ocap(function(v) { 
         caps = v;
-        // calls t1 function from hello.world result, in oc.init.R
         caps.t1(5, function(v) {
-            console.log(v);
-            // calls t2 function in hello.world result, in oc.init.R
-            caps.t2(5, function(v) {
-                console.log(v);
-                console.log("All run!");
-                process.exit(0);
+            console.log("huh?");
+        });
+        debugger;
+        caps.t3(function(x) {
+            console.log("This is a cap!");
+            return 20 + x;
+        }, function(v) {
+            caps.t4(5, function(v) {
+                console.log("Result: ", v);
             });
         });
+        // // calls t1 function from hello.world result, in oc.init.R
+        // caps.t1(5, function(v) {
+        //     console.log(v);
+        //     // calls t2 function in hello.world result, in oc.init.R
+        //     caps.t2(5, function(v) {
+        //         console.log(v);
+        //         console.log("All run!");
+        //         process.exit(0);
+        //     });
+        // });
     });
 }
 

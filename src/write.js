@@ -38,6 +38,10 @@ Rserve.type_id = function(value)
     if (_.isArray(value))
         return Rserve.Rsrv.XT_VECTOR;
 
+    // functions get passed as an array_str with extra attributes
+    if (_.isFunction(value))
+        return Rserve.Rsrv.XT_ARRAY_STR | Rserve.Rsrv.XT_HAS_ATTR;
+
     // objects
     if (_.isObject(value))
         return Rserve.Rsrv.XT_VECTOR | Rserve.Rsrv.XT_HAS_ATTR;
@@ -82,20 +86,26 @@ Rserve.determine_size = function(value, forced_type)
     case Rserve.Rsrv.XT_VECTOR | Rserve.Rsrv.XT_HAS_ATTR:
         return header_size // XT_VECTOR | XT_HAS_ATTR
             + header_size // XT_LIST_TAG (attribute)
-              + header_size + "names".length + 3 // length of 'names' + padding (tag as XT_STR)
+              + header_size + "names".length + 3 // length of 'names' + padding (tag as XT_SYMNAME)
               + Rserve.determine_size(_.keys(value)) // length of names
             + list_size(_.values(value)); // length of values
+    case Rserve.Rsrv.XT_ARRAY_STR | Rserve.Rsrv.XT_HAS_ATTR:
+        return Rserve.determine_size("0403556553") // length of string 
+            + header_size // XT_LIST_TAG (attribute)
+              + header_size + "class".length + 3 // length of 'class' + padding (tag as XT_SYMNAME)
+              + Rserve.determine_size(["javascript_function"]); // length of class name
+        
     default:
         throw new Rserve.RserveError("Internal error, can't handle type " + t);
     }
 };
 
-Rserve.write_into_view = function(value, array_buffer_view, forced_type)
+Rserve.write_into_view = function(value, array_buffer_view, forced_type, convert)
 {
     var size = Rserve.determine_size(value, forced_type);
     if (size > 16777215)
         throw new Rserve.RserveError("Can't currently handle objects >16MB");
-    var t = forced_type || Rserve.type_id(value), i, current_offset;
+    var t = forced_type || Rserve.type_id(value), i, current_offset, lbl;
     var read_view;
     var write_view = array_buffer_view.data_view();
     write_view.setInt32(0, t + ((size - 4) << 8));
@@ -145,7 +155,7 @@ Rserve.write_into_view = function(value, array_buffer_view, forced_type)
         _.each(value, function(el) {
             var sz = Rserve.determine_size(el);
             Rserve.write_into_view(el, array_buffer_view.skip(
-                current_offset));
+                current_offset), undefined, convert);
             current_offset += sz;
         });
         break;
@@ -160,7 +170,7 @@ Rserve.write_into_view = function(value, array_buffer_view, forced_type)
 
         write_view.setUint32(current_offset, Rserve.Rsrv.XT_SYMNAME + (8 << 8));
         current_offset += 4;
-        var lbl = "names";
+        lbl = "names";
         for (i=0; i<lbl.length; ++i, ++current_offset)
             write_view.setUint8(current_offset, lbl.charCodeAt(i));
         current_offset += 3;
@@ -170,9 +180,32 @@ Rserve.write_into_view = function(value, array_buffer_view, forced_type)
         _.each(_.values(value), function(el) {
             var sz = Rserve.determine_size(el);
             Rserve.write_into_view(el, array_buffer_view.skip(
-                current_offset));
+                current_offset), undefined, convert);
             current_offset += sz;
         });
+        break;
+
+    case Rserve.Rsrv.XT_ARRAY_STR | Rserve.Rsrv.XT_HAS_ATTR:
+        var converted_function = convert(value);
+        current_offset = 12;
+        var class_name = "javascript_function";
+        for (i=0; i<class_name.length; ++i, ++current_offset)
+            write_view.setUint8(current_offset, class_name.charCodeAt(i));
+        write_view.setUint8(current_offset++, 0);
+        write_view.setUint32(8, Rserve.Rsrv.XT_ARRAY_STR + ((current_offset - 12) << 8));
+
+        write_view.setUint32(current_offset, Rserve.Rsrv.XT_SYMNAME + (8 << 8));
+        current_offset += 4;
+        lbl = "class";
+        for (i=0; i<lbl.length; ++i, ++current_offset)
+            write_view.setUint8(current_offset, lbl.charCodeAt(i));
+        current_offset += 3;
+
+        write_view.setUint32(4, Rserve.Rsrv.XT_LIST_TAG + ((current_offset - 8) << 8));
+
+        for (i=0; i<converted_function.length; ++i)
+            write_view.setUint8(current_offset + i, converted_function.charCodeAt(i));
+        write_view.setUint8(current_offset + converted_function.length, 0);
         break;
     default:
         throw new Rserve.RserveError("Internal error, can't handle type " + t);

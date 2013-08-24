@@ -45,27 +45,46 @@ function _encode_bytes(bytes) {
     return result;
 };
 
-function _encode_value(value, forced_type)
-{
-    var sz = Rserve.determine_size(value, forced_type);
-    var buffer = new ArrayBuffer(sz + 4);
-    var view = Rserve.my_ArrayBufferView(buffer);
-    view.data_view().setInt32(0, Rserve.Rsrv.DT_SEXP + (sz << 8));
-    Rserve.write_into_view(value, view.skip(4), forced_type);
-    return buffer;
-}
-
 Rserve.create = function(opts) {
     var host = opts.host;
     var onconnect = opts.on_connect;
     var socket = new WebSocket(host);
     socket.binaryType = 'arraybuffer';
     var handle_error = opts.on_error || function(error) { throw new Rserve.RserveError(error, -1); };
-
     var received_handshake = false;
 
     var result;
     var command_counter = 0;
+
+    var captured_functions = {};
+
+    var fresh_hash = function() {
+        var k;
+        do {
+            // while js has no crypto rngs :(
+            k = String(Math.random()).slice(2,12);
+        } while (k in captured_functions);
+        if (k.length !== 10)
+            throw new Error("Bad rng, no cookie");
+        return k;
+    };
+    
+    function convert_to_hash(value) {
+        var hash = fresh_hash();
+        captured_functions[hash] = value;
+        console.log("stored ", value, " at ", hash);
+        return hash;
+    }
+
+    function _encode_value(value, forced_type)
+    {
+        var sz = Rserve.determine_size(value, forced_type);
+        var buffer = new ArrayBuffer(sz + 4);
+        var view = Rserve.my_ArrayBufferView(buffer);
+        view.data_view().setInt32(0, Rserve.Rsrv.DT_SEXP + (sz << 8));
+        Rserve.write_into_view(value, view.skip(4), forced_type, convert_to_hash);
+        return buffer;
+    }
     
     function hand_shake(msg)
     {
@@ -199,6 +218,10 @@ Rserve.create = function(opts) {
         close: function() {
             socket.close();
         },
+
+        //////////////////////////////////////////////////////////////////////
+        // non-ocap mode
+
         login: function(command, k) {
             _cmd(Rserve.Rsrv.CMD_login, _encode_string(command), k, command);
         },
@@ -217,6 +240,10 @@ Rserve.create = function(opts) {
         set: function(key, value, k) {
             _cmd(Rserve.Rsrv.CMD_setSEXP, [_encode_string(key), _encode_value(value)], k, "");
         }, 
+
+        //////////////////////////////////////////////////////////////////////
+        // ocap mode
+
         OCcall: function(ocap, values, k) {
             var is_ocap = false, str;
             try {
@@ -252,7 +279,9 @@ Rserve.wrap_all_ocaps = function(s, v) {
             result.r_type = obj.r_type;
             result.r_attributes = obj.r_attributes;
         } else if (_.isTypedArray(obj)) {
-            return result;
+            return obj;
+        } else if (_.isFunction(obj)) {
+            return obj;
         } else if (_.isObject(obj)) {
             result = _.object(_.map(obj, function(v, k) {
                 return [k, replace(v)];
