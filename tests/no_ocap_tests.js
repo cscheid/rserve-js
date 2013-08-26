@@ -4,7 +4,19 @@ function no_ocap_tests()
 {
     var s = Rserve.create({
         host: 'http://127.0.0.1:8081',
-        on_connect: test
+        on_connect: test,
+        on_close: function(msg) {
+            console.log("Socket closed. (!?)");
+            console.log(msg);
+        },
+        // debug: {
+        //     message_out: function(data) {
+        //         console.log("OUT!", data);
+        //     },
+        //     message_in: function(data) {
+        //         console.log("IN!", data.data);
+        //     }
+        // }
     });
 
     function test()
@@ -34,7 +46,9 @@ function no_ocap_tests()
                     k();
                 });
             }); },
-            function(k) { s.set('a', new Uint8Array([1,2,3,4,5,6,7,8]).buffer, k); },
+            function(k) { s.set('a', 1, k); },
+            function(k) { s.set('a', (new Uint8Array([1,2,3,4,5,6,7,8])).buffer, k); },
+            function(k) { s.eval('print(a)', k); },
             function(k) {
                 console.log("All run!");
                 process.exit(0);

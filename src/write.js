@@ -81,7 +81,7 @@ Rserve.determine_size = function(value, forced_type)
         else
             return header_size + 8 * value.length;
     case Rserve.Rsrv.XT_RAW:
-        return header_size + value.byteLength;
+        return header_size + 4 + value.byteLength;
     case Rserve.Rsrv.XT_VECTOR:
     case Rserve.Rsrv.XT_LANG_NOTAG:
         return header_size + list_size(value);
@@ -148,8 +148,11 @@ Rserve.write_into_view = function(value, array_buffer_view, forced_type, convert
         break;
     case Rserve.Rsrv.XT_RAW:
         read_view = new Rserve.EndianAwareDataView(value);
-        for (i=0; i<value.length; ++i)
-            write_view.setUint8(4 + i, read_view.getUint8(value, i));
+        write_view.setUint32(4, value.byteLength);
+        for (i=0; i<value.byteLength; ++i) {
+            write_view.setUint8(8 + i, read_view.getUint8(i));
+            console.log(i, read_view.getUint8(i));
+        }
         break;
     case Rserve.Rsrv.XT_VECTOR:
     case Rserve.Rsrv.XT_LANG_NOTAG:

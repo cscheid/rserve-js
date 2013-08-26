@@ -96,6 +96,12 @@ function read(m)
             });
             return [Rserve.Robj.bool_array(a, attributes), length];
         },
+        read_raw: function(attributes, length) {
+            var l2 = this.read_int();
+            var s = this.read_stream(length-4);
+            var a = s.make(Uint8Array).subarray(0, l2).buffer;
+            return [Rserve.Robj.raw(a, attributes), length];
+        },
 
         read_sexp: function() {
             var d = this.read_int();
@@ -184,6 +190,7 @@ function read(m)
     handlers[Rserve.Rsrv.XT_ARRAY_DOUBLE] = that.read_double_array;
     handlers[Rserve.Rsrv.XT_ARRAY_STR]    = that.read_string_array;
     handlers[Rserve.Rsrv.XT_ARRAY_BOOL]   = that.read_bool_array;
+    handlers[Rserve.Rsrv.XT_RAW]          = that.read_raw;
 
     handlers[Rserve.Rsrv.XT_STR]          = sl(that.read_string, Rserve.Robj.string);
 

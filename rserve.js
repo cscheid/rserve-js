@@ -167,6 +167,14 @@ Rserve.Robj = {
                 return this.value;
         }
     }),
+    raw: make_basic("raw", {
+        json: function() {
+            if (this.value.length === 1 && _.isUndefined(this.attributes))
+                return this.value[0];
+            else
+                return this.value;
+        }
+    }),
     string: make_basic("string", {
         json: function() {
             return this.value;
@@ -414,6 +422,12 @@ function read(m)
             });
             return [Rserve.Robj.bool_array(a, attributes), length];
         },
+        read_raw: function(attributes, length) {
+            var l2 = this.read_int();
+            var s = this.read_stream(length-4);
+            var a = s.make(Uint8Array).subarray(0, l2).buffer;
+            return [Rserve.Robj.raw(a, attributes), length];
+        },
 
         read_sexp: function() {
             var d = this.read_int();
@@ -502,6 +516,7 @@ function read(m)
     handlers[Rserve.Rsrv.XT_ARRAY_DOUBLE] = that.read_double_array;
     handlers[Rserve.Rsrv.XT_ARRAY_STR]    = that.read_string_array;
     handlers[Rserve.Rsrv.XT_ARRAY_BOOL]   = that.read_bool_array;
+    handlers[Rserve.Rsrv.XT_RAW]          = that.read_raw;
 
     handlers[Rserve.Rsrv.XT_STR]          = sl(that.read_string, Rserve.Robj.string);
 
@@ -1104,7 +1119,7 @@ Rserve.determine_size = function(value, forced_type)
         else
             return header_size + 8 * value.length;
     case Rserve.Rsrv.XT_RAW:
-        return header_size + value.byteLength;
+        return header_size + 4 + value.byteLength;
     case Rserve.Rsrv.XT_VECTOR:
     case Rserve.Rsrv.XT_LANG_NOTAG:
         return header_size + list_size(value);
@@ -1171,8 +1186,11 @@ Rserve.write_into_view = function(value, array_buffer_view, forced_type, convert
         break;
     case Rserve.Rsrv.XT_RAW:
         read_view = new Rserve.EndianAwareDataView(value);
-        for (i=0; i<value.length; ++i)
-            write_view.setUint8(4 + i, read_view.getUint8(value, i));
+        write_view.setUint32(4, value.byteLength);
+        for (i=0; i<value.byteLength; ++i) {
+            write_view.setUint8(8 + i, read_view.getUint8(i));
+            console.log(i, read_view.getUint8(i));
+        }
         break;
     case Rserve.Rsrv.XT_VECTOR:
     case Rserve.Rsrv.XT_LANG_NOTAG:
