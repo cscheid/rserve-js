@@ -2,6 +2,8 @@
 
 _.mixin({
     isTypedArray: function(v) {
+        if (!_.isObject(v))
+            return false;
         return !_.isUndefined(v.byteLength) && !_.isUndefined(v.BYTES_PER_ELEMENT);
     }
 });
