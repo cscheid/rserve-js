@@ -1104,7 +1104,7 @@ Rserve.determine_size = function(value, forced_type)
         else
             return header_size + 8 * value.length;
     case Rserve.Rsrv.XT_RAW:
-        return header_size + value.length;
+        return header_size + value.byteLength;
     case Rserve.Rsrv.XT_VECTOR:
     case Rserve.Rsrv.XT_LANG_NOTAG:
         return header_size + list_size(value);
