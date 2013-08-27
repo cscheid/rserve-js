@@ -167,14 +167,11 @@ Rserve.create = function(opts) {
                         return;
                     }
                     var captured_function = captured_functions[hash];
-                    try {
-                        result = captured_function.apply(undefined, params);
-                        _send_cmd_now(Rserve.Rsrv.OOB_MSG,
-                                      _encode_value(result));
-                    } catch (e) {
-                        _send_cmd_now(Rserve.Rsrv.RESP_ERR | Rserve.Rsrv.OOB_MSG, 
-                                      _encode_string("javascript function raised exception " + String(e)));
-                    }
+                    
+                    params.push(function(result) {
+                        _send_cmd_now(Rserve.Rsrv.OOB_MSG, _encode_value(result));
+                    });
+                    captured_function.apply(undefined, params); 
                 }
             } else {
                 if (_.isUndefined(opts.on_oob_message)) {

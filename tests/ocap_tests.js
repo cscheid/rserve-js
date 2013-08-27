@@ -13,9 +13,9 @@ function test()
         funs.t1(5, function(v) {
             console.log("ok.");
         });
-        funs.t3(function(x) {
+        funs.t3(function(x, k) {
             console.log("This is running in javascript!");
-            return 20 + x;
+            k(20 + x);
         }, function(v) {
             funs.t4(5, function(v) {
                 console.log("Result: ", v);
