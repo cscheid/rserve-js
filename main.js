@@ -984,6 +984,10 @@ Rserve.create = function(opts) {
             _cmd(Rserve.Rsrv.CMD_OCcall, _encode_value(params, Rserve.Rsrv.XT_LANG_NOTAG),
                  k,
                  "");
+        },
+
+        wrap_ocap: function(ocap) {
+            return Rserve.wrap_ocap(this, ocap);
         }
     };
     return result;
