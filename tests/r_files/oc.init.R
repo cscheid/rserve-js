@@ -18,6 +18,7 @@ give.first.functions <- function()
 {
   x <- 3
   javascript.function <- NULL
+  naked.javascript.function <- NULL
   cat("INIT!\n")
   list(t1=wrap.r.fun(function(v) {
     cat("UP!\n")
@@ -32,6 +33,11 @@ give.first.functions <- function()
     TRUE
   }), t4=wrap.r.fun(function(v) {
     javascript.function(v)
+  }), t5=wrap.r.fun(function(v) {
+    naked.javascript.function <<- v
+    NULL
+  }), t6=wrap.r.fun(function(v) {
+    list(naked.javascript.function, v)
   }))
 }
 
