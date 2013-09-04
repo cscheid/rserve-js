@@ -14,13 +14,13 @@ function make_basic(type, proto) {
         }
     };
     var wrapped_proto = {
-        json: function() {
-            var result = proto.json.call(this);
+        json: function(resolver) {
+            var result = proto.json.call(this, resolver);
             result.r_type = type;
             if (!_.isUndefined(this.attributes))
                 result.r_attributes = _.object(_.map(
                     this.attributes.value,
-                    function(v) { return [v.name, v.value.json()]; }));
+                    function(v) { return [v.name, v.value.json(resolver)]; }));
             return result;
         }
     };
@@ -57,8 +57,8 @@ Rserve.Robj = {
     },
 
     vector: make_basic("vector", {
-        json: function() {
-            var values = _.map(this.value, function (x) { return x.json(); });
+        json: function(resolver) {
+            var values = _.map(this.value, function (x) { return x.json(resolver); });
             if (_.isUndefined(this.attributes)) {
                 return values;
             } else {
@@ -80,8 +80,8 @@ Rserve.Robj = {
     }),
     list: make_basic("list"),
     lang: make_basic("lang", {
-        json: function() {
-            var values = _.map(this.value, function (x) { return x.json(); });
+        json: function(resolver) {
+            var values = _.map(this.value, function (x) { return x.json(resolver); });
             if (_.isUndefined(this.attributes)) {
                 return values;
             } else {
@@ -97,7 +97,7 @@ Rserve.Robj = {
         }
     }),
     tagged_list: make_basic("tagged_list", {
-        json: function() {
+        json: function(resolver) {
             function classify_list(list) {
                 if (_.all(list, function(elt) { return elt.name === null; })) {
                     return "plain_list";
@@ -109,10 +109,10 @@ Rserve.Robj = {
             var list = this.value.slice(1);
             switch (classify_list(list)) {
             case "plain_list":
-                return _.map(list, function(elt) { return elt.value.json(); });
+                return _.map(list, function(elt) { return elt.value.json(resolver); });
             case "plain_object":
                 return _.object(_.map(list, function(elt) { 
-                    return [elt.name, elt.value.json()];
+                    return [elt.name, elt.value.json(resolver)];
                 }));
             case "mixed_list":
                 return list;
@@ -122,8 +122,8 @@ Rserve.Robj = {
         }
     }),
     tagged_lang: make_basic("tagged_lang", {
-        json: function() {
-            var pair_vec = _.map(this.value, function(elt) { return [elt.name, elt.value.json()]; });
+        json: function(resolver) {
+            var pair_vec = _.map(this.value, function(elt) { return [elt.name, elt.value.json(resolver)]; });
             return pair_vec;
         }
     }),
@@ -155,10 +155,15 @@ Rserve.Robj = {
         }
     }),
     string_array: make_basic("string_array", {
-        json: function() {
-            if (this.value.length === 1 && _.isUndefined(this.attributes))
-                return this.value[0];
-            else
+        json: function(resolver) {
+            if (this.value.length === 1) {
+                if (_.isUndefined(this.attributes))
+                    return this.value[0];
+                if (this.attributes.value[0].name === 'class' &&
+                    this.attributes.value[0].value.value.indexOf("javascript_function") !== -1)
+                    return resolver(this.value[0]);
+                return this.value;
+            } else
                 return this.value;
         }
     }),
@@ -848,29 +853,24 @@ Rserve.create = function(opts) {
             opts.on_data && opts.on_data(v.payload);
         } else if (v.header[0] === Rserve.Rsrv.OOB_MSG) {
             if (result.ocap_mode) {
-                var p = v.payload.value.json();
-                var c;
+                var p;
                 try {
-                    c = p[0].r_attributes['class'];
-                } catch (e) {};
-                if (_.isUndefined(c) || c !== 'javascript_function')
+                    p = v.payload.value.json(result.resolve_hash);
+                } catch (e) {
+                    _send_cmd_now(Rserve.Rsrv.RESP_ERR | Rserve.Rsrv.OOB_MSG, 
+                                  _encode_string(String(e)));
+                    return;
+                }
+                if (!_.isFunction(p[0])) {
                     _send_cmd_now(Rserve.Rsrv.RESP_ERR | Rserve.Rsrv.OOB_MSG, 
                                   _encode_string("OOB Messages on ocap-mode must be javascript function calls"));
-                else {
-                    var params = p.slice(1);
-                    var hash = p[0][0];
-                    if (!(hash in captured_functions)) {
-                        _send_cmd_now(Rserve.Rsrv.RESP_ERR | Rserve.Rsrv.OOB_MSG, 
-                                      _encode_string("hash " + hash + " not found."));
-                        return;
-                    }
-                    var captured_function = captured_functions[hash];
-                    
-                    params.push(function(result) {
-                        _send_cmd_now(Rserve.Rsrv.OOB_MSG, _encode_value(result));
-                    });
-                    captured_function.apply(undefined, params); 
+                    return;
                 }
+                var captured_function = p[0], params = p.slice(1);
+                params.push(function(result) {
+                    _send_cmd_now(Rserve.Rsrv.OOB_MSG, _encode_value(result));
+                });
+                captured_function.apply(undefined, params);
             } else {
                 if (_.isUndefined(opts.on_oob_message)) {
                     _send_cmd_now(Rserve.Rsrv.RESP_ERR | Rserve.Rsrv.OOB_MSG, 
@@ -988,13 +988,19 @@ Rserve.create = function(opts) {
 
         wrap_ocap: function(ocap) {
             return Rserve.wrap_ocap(this, ocap);
+        },
+
+        resolve_hash: function(hash) {
+            if (!(hash in captured_functions))
+                throw new Error("hash " + hash + " not found.");
+            return captured_functions[hash];
         }
     };
     return result;
 };
 
 Rserve.wrap_all_ocaps = function(s, v) {
-    v = v.value.json();
+    v = v.value.json(s.resolve_hash);
     function replace(obj) {
         var result = obj;
         if (_.isArray(obj) &&

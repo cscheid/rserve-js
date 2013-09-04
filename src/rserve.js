@@ -150,29 +150,24 @@ Rserve.create = function(opts) {
             opts.on_data && opts.on_data(v.payload);
         } else if (v.header[0] === Rserve.Rsrv.OOB_MSG) {
             if (result.ocap_mode) {
-                var p = v.payload.value.json();
-                var c;
+                var p;
                 try {
-                    c = p[0].r_attributes['class'];
-                } catch (e) {};
-                if (_.isUndefined(c) || c !== 'javascript_function')
+                    p = v.payload.value.json(result.resolve_hash);
+                } catch (e) {
+                    _send_cmd_now(Rserve.Rsrv.RESP_ERR | Rserve.Rsrv.OOB_MSG, 
+                                  _encode_string(String(e)));
+                    return;
+                }
+                if (!_.isFunction(p[0])) {
                     _send_cmd_now(Rserve.Rsrv.RESP_ERR | Rserve.Rsrv.OOB_MSG, 
                                   _encode_string("OOB Messages on ocap-mode must be javascript function calls"));
-                else {
-                    var params = p.slice(1);
-                    var hash = p[0][0];
-                    if (!(hash in captured_functions)) {
-                        _send_cmd_now(Rserve.Rsrv.RESP_ERR | Rserve.Rsrv.OOB_MSG, 
-                                      _encode_string("hash " + hash + " not found."));
-                        return;
-                    }
-                    var captured_function = captured_functions[hash];
-                    
-                    params.push(function(result) {
-                        _send_cmd_now(Rserve.Rsrv.OOB_MSG, _encode_value(result));
-                    });
-                    captured_function.apply(undefined, params); 
+                    return;
                 }
+                var captured_function = p[0], params = p.slice(1);
+                params.push(function(result) {
+                    _send_cmd_now(Rserve.Rsrv.OOB_MSG, _encode_value(result));
+                });
+                captured_function.apply(undefined, params);
             } else {
                 if (_.isUndefined(opts.on_oob_message)) {
                     _send_cmd_now(Rserve.Rsrv.RESP_ERR | Rserve.Rsrv.OOB_MSG, 
@@ -290,13 +285,19 @@ Rserve.create = function(opts) {
 
         wrap_ocap: function(ocap) {
             return Rserve.wrap_ocap(this, ocap);
+        },
+
+        resolve_hash: function(hash) {
+            if (!(hash in captured_functions))
+                throw new Error("hash " + hash + " not found.");
+            return captured_functions[hash];
         }
     };
     return result;
 };
 
 Rserve.wrap_all_ocaps = function(s, v) {
-    v = v.value.json();
+    v = v.value.json(s.resolve_hash);
     function replace(obj) {
         var result = obj;
         if (_.isArray(obj) &&
