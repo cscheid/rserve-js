@@ -8,7 +8,7 @@ function no_ocap_tests()
         on_close: function(msg) {
             console.log("Socket closed. (!?)");
             console.log(msg);
-        },
+        }// ,
         // debug: {
         //     message_out: function(data) {
         //         console.log("OUT!", data);
@@ -49,6 +49,8 @@ function no_ocap_tests()
             function(k) { s.set('a', 1, k); },
             function(k) { s.set('a', (new Uint8Array([1,2,3,4,5,6,7,8])).buffer, k); },
             function(k) { s.eval('print(a)', k); },
+            function(k) { s.eval('attr(Orange, "formula")', k); }, // tests XT_UNKNOWN
+
             function(k) {
                 console.log("All run!");
                 process.exit(0);
