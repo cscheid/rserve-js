@@ -1,6 +1,6 @@
 (function() {
 
-Rserve = {};
+var Rserve = {};
 
 var _ = require('underscore');
 var WebSocket = require('ws');
@@ -1269,6 +1269,7 @@ Rserve.write_into_view = function(value, array_buffer_view, forced_type, convert
 };
 
 })();
+this.Rserve = Rserve;
 })();
 module.exports = Rserve;
-(function () { delete this.Rserve; })(); // unset global
+// (function () { delete this.Rserve; })(); // unset global
