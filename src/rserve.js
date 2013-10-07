@@ -46,6 +46,10 @@ function _encode_bytes(bytes) {
 };
 
 Rserve.create = function(opts) {
+    opts = _.defaults(opts || {}, {
+        host: 'http://127.0.0.1:8081',
+        on_connect: function() {}
+    });
     var host = opts.host;
     var onconnect = opts.on_connect;
     var socket = new WebSocket(host);
