@@ -1,6 +1,6 @@
 {
     "name": "rserve",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "description": "rserve-js provides a javascript implementation of the websocket Rserve protocol",
     "author": "Carlos Scheidegger <carlos.scheidegger@gmail.com> (http://cscheid.net)",
     "main": "main.js",
