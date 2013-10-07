@@ -1,6 +1,6 @@
 (function() {
 
-Rserve = {};
+var Rserve = {};
 
 (function() {
 
@@ -1266,4 +1266,5 @@ Rserve.write_into_view = function(value, array_buffer_view, forced_type, convert
 };
 
 })();
+this.Rserve = Rserve;
 })();
