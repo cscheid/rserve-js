@@ -1,4 +1,4 @@
 (function() {
 
-Rserve = {};
+var Rserve = {};
 

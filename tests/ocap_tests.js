@@ -1,6 +1,6 @@
-Rserve = require('../main.js');
+r = require('../main.js');
 
-s = Rserve.create({
+s = r.create({
     host: 'http://127.0.0.1:8081',
     on_connect: test
 });
