@@ -156,7 +156,7 @@ Rserve.create = function(opts) {
             if (result.ocap_mode) {
                 var p;
                 try {
-                    p = v.payload.value.json(result.resolve_hash);
+                    p = Rserve.wrap_all_ocaps(result, v.payload); // .value.json(result.resolve_hash);
                 } catch (e) {
                     _send_cmd_now(Rserve.Rsrv.RESP_ERR | Rserve.Rsrv.OOB_MSG, 
                                   _encode_string(String(e)));
