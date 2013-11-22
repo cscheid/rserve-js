@@ -9,10 +9,7 @@ wrap.js.fun <- function(s)
   }
 }
 
-wrap.r.fun <- function(fun)
-{
-  .Call("Rserve_oc_register", fun)
-}
+wrap.r.fun <- Rserve:::ocap
 
 give.first.functions <- function()
 {
@@ -24,21 +21,21 @@ give.first.functions <- function()
     cat("UP!\n")
     x <<- x + v
     x
-  }), t2=wrap.r.fun(function(v) {
+  }, "t1"), t2=wrap.r.fun(function(v) {
     cat("DOWN!\n")
     x <<- x - v
     x
-  }), t3=wrap.r.fun(function(v) {
+  }, "t2"), t3=wrap.r.fun(function(v) {
     javascript.function <<- wrap.js.fun(v)
     TRUE
-  }), t4=wrap.r.fun(function(v) {
+  }, "t3"), t4=wrap.r.fun(function(v) {
     javascript.function(v)
-  }), t5=wrap.r.fun(function(v) {
+  }, "t4"), t5=wrap.r.fun(function(v) {
     naked.javascript.function <<- v
     NULL
-  }), t6=wrap.r.fun(function(v) {
+  }, "t5"), t6=wrap.r.fun(function(v) {
     list(naked.javascript.function, v)
-  }))
+  }, "t6"))
 }
 
 ####################################################################################################
