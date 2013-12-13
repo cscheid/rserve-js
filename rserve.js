@@ -978,10 +978,12 @@ Rserve.create = function(opts) {
                 is_ocap |= ocap.r_attributes['class'] === 'OCref';
                 str = ocap[0];
             } catch (e) {};
-            try {
-                is_ocap |= ocap.attributes.value[0].value.value[0] === 'OCref';
-                str = ocap.value[0];
-            } catch (e) {};
+            if(!is_ocap) {
+                try {
+                    is_ocap |= ocap.attributes.value[0].value.value[0] === 'OCref';
+                    str = ocap.value[0];
+                } catch (e) {};
+            }
             if (!is_ocap)
                 throw new Error("Expected an ocap, instead got " + ocap);
             var params = [str];
