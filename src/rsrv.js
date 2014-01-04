@@ -110,8 +110,8 @@ Rserve.Rsrv = {
 
     GET_XT: function(x) { return x & 63; },
     GET_DT: function(x) { return x & 63; },
-    HAS_ATTR: function(x) { return (x & Rsrv.XT_HAS_ATTR) > 0; },
-    IS_LARGE: function(x) { return (x & Rsrv.XT_LARGE) > 0; },
+    HAS_ATTR: function(x) { return (x & Rserve.Rsrv.XT_HAS_ATTR) > 0; },
+    IS_LARGE: function(x) { return (x & Rserve.Rsrv.XT_LARGE) > 0; },
 
     // # FIXME A WHOLE LOT OF MACROS HERE WHICH ARE PROBABLY IMPORTANT
     // ##############################################################################

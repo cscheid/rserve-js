@@ -300,8 +300,8 @@ Rserve.Rsrv = {
 
     GET_XT: function(x) { return x & 63; },
     GET_DT: function(x) { return x & 63; },
-    HAS_ATTR: function(x) { return (x & Rsrv.XT_HAS_ATTR) > 0; },
-    IS_LARGE: function(x) { return (x & Rsrv.XT_LARGE) > 0; },
+    HAS_ATTR: function(x) { return (x & Rserve.Rsrv.XT_HAS_ATTR) > 0; },
+    IS_LARGE: function(x) { return (x & Rserve.Rsrv.XT_LARGE) > 0; },
 
     // # FIXME A WHOLE LOT OF MACROS HERE WHICH ARE PROBABLY IMPORTANT
     // ##############################################################################
@@ -443,6 +443,12 @@ function read(m)
             var t = _[0], l = _[1];
             var total_read = 4;
             var attributes = undefined;
+            if (Rserve.Rsrv.IS_LARGE(t)) {
+                var extra_length = this.read_int();
+                total_read += 4;
+                l += extra_length * Math.pow(2, 24);
+                t &= ~64;
+            }
             if (t & Rserve.Rsrv.XT_HAS_ATTR) {
                 t = t & ~Rserve.Rsrv.XT_HAS_ATTR;
                 var attr_result = this.read_sexp();
@@ -555,8 +561,13 @@ function parse(msg)
         result.message = "Unexpected response from RServe: " + result.header[0] + " status: " + Rserve.Rsrv.status_codes[status_code];
         return result;
     }
-    result.ok = true;
-    result.payload = parse_payload(msg);
+    try {
+        result.payload = parse_payload(msg);
+        result.ok = true;
+    } catch (e) {
+        result.ok = false;
+        result.message = e.message;
+    }
     return result;
 }
 
@@ -571,6 +582,16 @@ function parse_payload(msg)
     var d = reader.read_int();
     var _ = Rserve.Rsrv.par_parse(d);
     var t = _[0], l = _[1];
+    if (Rserve.Rsrv.IS_LARGE(t)) {
+        var more_length = reader.read_int();
+        l += more_length * Math.pow(2, 24);
+        if (l > (Math.pow(2, 32))) { // resist the 1 << 32 temptation here!
+            // total_length is greater than 2^32.. bail out because of node limits
+            // even though in theory we could go higher than that.
+            throw new Error("Payload too large: " + l + " bytes");
+        }
+        t &= ~64;
+    }
     if (t === Rserve.Rsrv.DT_INT) {
         return { type: "int", value: reader.read_int() };
     } else if (t === Rserve.Rsrv.DT_STRING) {

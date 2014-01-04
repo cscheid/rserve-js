@@ -14,7 +14,7 @@ function no_ocap_tests()
         //         console.log("OUT!", data);
         //     },
         //     message_in: function(data) {
-        //         console.log("IN!", data.data);
+        //         console.log("IN!", data.data.slice(0,64));
         //     }
         // }
     });
@@ -50,6 +50,7 @@ function no_ocap_tests()
             function(k) { s.set('a', (new Uint8Array([1,2,3,4,5,6,7,8])).buffer, k); },
             function(k) { s.eval('print(a)', k); },
             function(k) { s.eval('attr(Orange, "formula")', k); }, // tests XT_UNKNOWN
+            function(k) { s.eval('rnorm(3000000)', k); }, // tests XT_LARGE
 
             function(k) {
                 console.log("All run!");
