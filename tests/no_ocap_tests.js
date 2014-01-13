@@ -8,17 +8,34 @@ function no_ocap_tests()
         on_close: function(msg) {
             console.log("Socket closed. (!?)");
             console.log(msg);
-        }// ,
+        }//,
         // debug: {
         //     message_out: function(data) {
-        //         console.log("OUT!", data);
+        //         if (data !== void 0)
+        //             console.log("OUT!", data.slice(0, 128));
         //     },
         //     message_in: function(data) {
-        //         console.log("IN!", data.data.slice(0,64));
+        //         if (data.data !== void 0)
+        //             console.log("IN!", data.data.slice(0,64));
         //     }
         // }
     });
 
+    function range(x) {
+        var result = new Float64Array(x);
+        for (var i=0; i<x; ++i)
+            result[i] = i+1; // R arrays are 1-based. wat
+        return result;
+    }
+    function expect_equals(x, k) {
+        return function(v) {
+            if (v.value.json() !== x) {
+                console.log('Expected value to be ' + String(x) + ', got ' + String(v.value.json()));
+            }
+            k();
+        };
+    }
+    
     function test()
     {
         sequence_([
@@ -51,7 +68,15 @@ function no_ocap_tests()
             function(k) { s.eval('print(a)', k); },
             function(k) { s.eval('attr(Orange, "formula")', k); }, // tests XT_UNKNOWN
             function(k) { s.eval('rnorm(3000000)', k); }, // tests XT_LARGE
-
+            function(k) { s.set('a', new Float64Array(2500000), k); },
+            function(k) { s.eval('mean(a)', expect_equals(0, k)); },
+            function(k) {
+                s.set('a', range(2500000), k); 
+            },
+            function(k) { s.eval('a[1]', expect_equals(1, k)); },
+            function(k) { s.eval('a[100]', expect_equals(100, k)); },
+            function(k) { s.eval('a[1000]', expect_equals(1000, k)); },
+            function(k) { s.eval('a[2499999]', expect_equals(2499999, k)); },
             function(k) {
                 console.log("All run!");
                 process.exit(0);

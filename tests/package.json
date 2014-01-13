@@ -1,9 +1,9 @@
 {
   "name": "test",
-  "version": "0.0.1",
+  "version": "1.0.2",
   "description": "tests",
   "keywords": [ "aslkdjfhrserve" ],
   "dependencies": {
-    "rserve": "0.0.1"
+    "rserve": "1.0.2"
   }
 }
