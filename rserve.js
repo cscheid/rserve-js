@@ -1068,6 +1068,9 @@ Rserve.wrap_all_ocaps = function(s, v) {
 Rserve.wrap_ocap = function(s, ocap) {
     var wrapped_ocap = function() {
         var values = _.toArray(arguments);
+        // common error (tho this won't catch the case where last arg is a function)
+        if(!values.length || !_.isFunction(values[values.length-1]))
+            throw new Error("forgot to pass continuation to ocap");
         var k = values.pop();
         s.OCcall(ocap, values, function(v) {
             k(Rserve.wrap_all_ocaps(s, v));
@@ -1276,30 +1279,6 @@ Rserve.write_into_view = function(value, array_buffer_view, forced_type, convert
         });
         break;
     case Rserve.Rsrv.XT_VECTOR | Rserve.Rsrv.XT_HAS_ATTR:
-        /*current_offset = 12;
-        _.each(_.keys(value), function(el) {
-            for (var i=0; i<el.length; ++i, ++current_offset)
-                write_view.setUint8(current_offset, el.charCodeAt(i));
-            write_view.setUint8(current_offset++, 0);
-        });
-        write_view.setUint32(8, Rserve.Rsrv.XT_ARRAY_STR + ((current_offset - 12) << 8));
-
-        write_view.setUint32(current_offset, Rserve.Rsrv.XT_SYMNAME + (8 << 8));
-        current_offset += 4;
-        lbl = "names";
-        for (i=0; i<lbl.length; ++i, ++current_offset)
-            write_view.setUint8(current_offset, lbl.charCodeAt(i));
-        current_offset += 3;
-
-        write_view.setUint32(4, Rserve.Rsrv.XT_LIST_TAG + ((current_offset - 8) << 8));
-
-        _.each(_.values(value), function(el) {
-            var sz = Rserve.determine_size(el);
-            Rserve.write_into_view(el, array_buffer_view.skip(
-                current_offset), undefined, convert);
-            current_offset += sz;
-        });
-        break;*/
         current_offset = payload_start + 8;
         _.each(_.keys(value), function(el) {
             for (var i=0; i<el.length; ++i, ++current_offset)
@@ -1326,24 +1305,6 @@ Rserve.write_into_view = function(value, array_buffer_view, forced_type, convert
         break;
 
     case Rserve.Rsrv.XT_ARRAY_STR | Rserve.Rsrv.XT_HAS_ATTR:
-/*      var converted_function = convert(value);
-        current_offset = 12;
-        var class_name = "javascript_function";
-        for (i=0; i<class_name.length; ++i, ++current_offset)
-            write_view.setUint8(current_offset, class_name.charCodeAt(i));
-        write_view.setUint8(current_offset++, 0);
-        write_view.setUint32(8, Rserve.Rsrv.XT_ARRAY_STR + ((current_offset - 12) << 8));
-        write_view.setUint32(current_offset, Rserve.Rsrv.XT_SYMNAME + (8 << 8));
-        current_offset += 4;
-        lbl = "class";
-        for (i=0; i<lbl.length; ++i, ++current_offset)
-            write_view.setUint8(current_offset, lbl.charCodeAt(i));
-        current_offset += 3;
-        write_view.setUint32(4, Rserve.Rsrv.XT_LIST_TAG + ((current_offset - 8) << 8));
-        for (i=0; i<converted_function.length; ++i)
-            write_view.setUint8(current_offset + i, converted_function.charCodeAt(i));
-        write_view.setUint8(current_offset + converted_function.length, 0);
-        break;*/
         var converted_function = convert(value);
         current_offset = payload_start + 8;
         var class_name = "javascript_function";
