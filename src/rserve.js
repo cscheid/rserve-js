@@ -350,6 +350,9 @@ Rserve.wrap_all_ocaps = function(s, v) {
 Rserve.wrap_ocap = function(s, ocap) {
     var wrapped_ocap = function() {
         var values = _.toArray(arguments);
+        // common error (tho this won't catch the case where last arg is a function)
+        if(!values.length || !_.isFunction(values[values.length-1]))
+            throw new Error("forgot to pass continuation to ocap");
         var k = values.pop();
         s.OCcall(ocap, values, function(err, v) {
             if (!_.isUndefined(v))
