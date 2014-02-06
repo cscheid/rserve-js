@@ -17,7 +17,9 @@ give.first.functions <- function()
   javascript.function <- NULL
   naked.javascript.function <- NULL
   cat("INIT!\n")
-  list(t1=wrap.r.fun(function(v) {
+  list(tfail=wrap.r.fun(function(v) {
+    stop("hammertime")
+  }, "tfail"), t1=wrap.r.fun(function(v) {
     cat("UP!\n")
     x <<- x + v
     x

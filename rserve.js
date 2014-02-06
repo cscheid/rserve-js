@@ -884,9 +884,10 @@ Rserve.create = function(opts) {
         }
         var v = Rserve.parse_websocket_frame(msg.data);
         if (!v.ok) {
-            handle_error(v.message, v.status_code);
+            result_callback([v.message, v.status_code], undefined);
+            // handle_error(v.message, v.status_code);
         } else if (v.header[0] === Rserve.Rsrv.RESP_OK) {
-            result_callback(v.payload);
+            result_callback(null, v.payload);
         } else if (v.header[0] === Rserve.Rsrv.OOB_SEND) {
             opts.on_data && opts.on_data(v.payload);
         } else if (v.header[0] === Rserve.Rsrv.OOB_MSG) {
@@ -905,8 +906,12 @@ Rserve.create = function(opts) {
                     return;
                 }
                 var captured_function = p[0], params = p.slice(1);
-                params.push(function(result) {
-                    _send_cmd_now(Rserve.Rsrv.OOB_MSG, _encode_value(result));
+                params.push(function(err, result) {
+                    if (err) {
+                        _send_cmd_now(Rserve.Rsrv.RESP_ERR | Rserve.Rsrv.OOB_MSG, _encode_value(err));
+                    } else {
+                        _send_cmd_now(Rserve.Rsrv.OOB_MSG, _encode_value(result));
+                    }
                 });
                 captured_function.apply(undefined, params);
             } else {
@@ -958,10 +963,10 @@ Rserve.create = function(opts) {
         }
     }
     function enqueue(buffer, k, command) {
-        queue.push([buffer, function(result) {
+        queue.push([buffer, function(error, result) {
             awaiting_result = false;
             bump_queue();
-            k(result);
+            k(error, result);
         }, command]);
         bump_queue();
     };
@@ -1017,8 +1022,10 @@ Rserve.create = function(opts) {
                     str = ocap.value[0];
                 } catch (e) {};
             }
-            if (!is_ocap)
-                throw new Error("Expected an ocap, instead got " + ocap);
+            if (!is_ocap) {
+                k(new Error("Expected an ocap, instead got " + ocap), undefined);
+                return;
+            }
             var params = [str];
             params.push.apply(params, values);
             _cmd(Rserve.Rsrv.CMD_OCcall, _encode_value(params, Rserve.Rsrv.XT_LANG_NOTAG),
@@ -1069,8 +1076,10 @@ Rserve.wrap_ocap = function(s, ocap) {
     var wrapped_ocap = function() {
         var values = _.toArray(arguments);
         var k = values.pop();
-        s.OCcall(ocap, values, function(v) {
-            k(Rserve.wrap_all_ocaps(s, v));
+        s.OCcall(ocap, values, function(err, v) {
+            if (!_.isUndefined(v))
+                v = Rserve.wrap_all_ocaps(s, v); 
+            k(err, v);
         });
     };
     wrapped_ocap.bare_ocap = ocap;
@@ -1276,30 +1285,6 @@ Rserve.write_into_view = function(value, array_buffer_view, forced_type, convert
         });
         break;
     case Rserve.Rsrv.XT_VECTOR | Rserve.Rsrv.XT_HAS_ATTR:
-        /*current_offset = 12;
-        _.each(_.keys(value), function(el) {
-            for (var i=0; i<el.length; ++i, ++current_offset)
-                write_view.setUint8(current_offset, el.charCodeAt(i));
-            write_view.setUint8(current_offset++, 0);
-        });
-        write_view.setUint32(8, Rserve.Rsrv.XT_ARRAY_STR + ((current_offset - 12) << 8));
-
-        write_view.setUint32(current_offset, Rserve.Rsrv.XT_SYMNAME + (8 << 8));
-        current_offset += 4;
-        lbl = "names";
-        for (i=0; i<lbl.length; ++i, ++current_offset)
-            write_view.setUint8(current_offset, lbl.charCodeAt(i));
-        current_offset += 3;
-
-        write_view.setUint32(4, Rserve.Rsrv.XT_LIST_TAG + ((current_offset - 8) << 8));
-
-        _.each(_.values(value), function(el) {
-            var sz = Rserve.determine_size(el);
-            Rserve.write_into_view(el, array_buffer_view.skip(
-                current_offset), undefined, convert);
-            current_offset += sz;
-        });
-        break;*/
         current_offset = payload_start + 8;
         _.each(_.keys(value), function(el) {
             for (var i=0; i<el.length; ++i, ++current_offset)
@@ -1326,24 +1311,6 @@ Rserve.write_into_view = function(value, array_buffer_view, forced_type, convert
         break;
 
     case Rserve.Rsrv.XT_ARRAY_STR | Rserve.Rsrv.XT_HAS_ATTR:
-/*      var converted_function = convert(value);
-        current_offset = 12;
-        var class_name = "javascript_function";
-        for (i=0; i<class_name.length; ++i, ++current_offset)
-            write_view.setUint8(current_offset, class_name.charCodeAt(i));
-        write_view.setUint8(current_offset++, 0);
-        write_view.setUint32(8, Rserve.Rsrv.XT_ARRAY_STR + ((current_offset - 12) << 8));
-        write_view.setUint32(current_offset, Rserve.Rsrv.XT_SYMNAME + (8 << 8));
-        current_offset += 4;
-        lbl = "class";
-        for (i=0; i<lbl.length; ++i, ++current_offset)
-            write_view.setUint8(current_offset, lbl.charCodeAt(i));
-        current_offset += 3;
-        write_view.setUint32(4, Rserve.Rsrv.XT_LIST_TAG + ((current_offset - 8) << 8));
-        for (i=0; i<converted_function.length; ++i)
-            write_view.setUint8(current_offset + i, converted_function.charCodeAt(i));
-        write_view.setUint8(current_offset + converted_function.length, 0);
-        break;*/
         var converted_function = convert(value);
         current_offset = payload_start + 8;
         var class_name = "javascript_function";

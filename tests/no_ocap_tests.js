@@ -28,7 +28,7 @@ function no_ocap_tests()
         return result;
     }
     function expect_equals(x, k) {
-        return function(v) {
+        return function(err, v) {
             if (v.value.json() !== x) {
                 console.log('Expected value to be ' + String(x) + ', got ' + String(v.value.json()));
             }
@@ -55,7 +55,7 @@ function no_ocap_tests()
             function(k) { s.set('x', {a:1, b:2}, k); },
             function(k) { s.eval('x', k); },
             function(k) { s.set('x', true, function() {
-                s.eval('x', function(v) {
+                s.eval('x', function(err, v) {
                     if (v.value.json() !== true) {
                         console.log("Expected true, got ", v.value.json());
                         // throw new Error("Test failed, true does not match");
