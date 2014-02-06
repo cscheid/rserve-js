@@ -1,4 +1,5 @@
 Rserve = require('../main.js');
+Promise = require('bluebird');
 
 function no_ocap_tests()
 {
@@ -21,67 +22,57 @@ function no_ocap_tests()
         // }
     });
 
+    s = Promise.promisifyAll(s);
+
     function range(x) {
         var result = new Float64Array(x);
         for (var i=0; i<x; ++i)
             result[i] = i+1; // R arrays are 1-based. wat
         return result;
     }
-    function expect_equals(x, k) {
-        return function(err, v) {
-            if (v.value.json() !== x) {
-                console.log('Expected value to be ' + String(x) + ', got ' + String(v.value.json()));
-            }
-            k();
+    function expect_equals(x) {
+        return function(v) {
+            if (v.value.json() !== x)
+                throw new Error('Expected value to be ' + String(x) + ', got ' + String(v.value.json()));
         };
     }
     
     function test()
     {
-        sequence_([
-            function(k) { s.set('a', 1, k); },
-            function(k) { s.eval('cat(a)', k); },
-            function(k) { s.eval('print(a)', k); },
-            function(k) { s.eval('rnorm(100)', k); },
-            function(k) { s.set('y', [1,2], k); },
-            function(k) {
-                s.set('x', new Float32Array([1,2,3,4]), k); 
-            },
-            function(k) { s.set('z', "Hello, world!", k); },
-            function(k) { s.eval('z', k); },
-            function(k) { s.eval('print(c(z))', k); },
-            function(k) { s.eval('cat(z)', k); },
-            function(k) { s.eval('print(z)', k); },
-            function(k) { s.set('x', {a:1, b:2}, k); },
-            function(k) { s.eval('x', k); },
-            function(k) { s.set('x', true, function() {
-                s.eval('x', function(err, v) {
-                    if (v.value.json() !== true) {
-                        console.log("Expected true, got ", v.value.json());
-                        // throw new Error("Test failed, true does not match");
-                    }
-                    k();
-                });
-            }); },
-            function(k) { s.set('a', 1, k); },
-            function(k) { s.set('a', (new Uint8Array([1,2,3,4,5,6,7,8])).buffer, k); },
-            function(k) { s.eval('print(a)', k); },
-            function(k) { s.eval('attr(Orange, "formula")', k); }, // tests XT_UNKNOWN
-            function(k) { s.eval('rnorm(3000000)', k); }, // tests XT_LARGE
-            function(k) { s.set('a', new Float64Array(2500000), k); },
-            function(k) { s.eval('mean(a)', expect_equals(0, k)); },
-            function(k) {
-                s.set('a', range(2500000), k); 
-            },
-            function(k) { s.eval('a[1]', expect_equals(1, k)); },
-            function(k) { s.eval('a[100]', expect_equals(100, k)); },
-            function(k) { s.eval('a[1000]', expect_equals(1000, k)); },
-            function(k) { s.eval('a[2499999]', expect_equals(2499999, k)); },
-            function(k) {
+        var lst = [
+            function() { return s.setAsync('a', 1); },
+            function() { return s.evalAsync('cat(a)'); },
+            function() { return s.evalAsync('print(a)'); },
+            function() { return s.evalAsync('rnorm(100)'); },
+            function() { return s.setAsync('y', [1,2]); },
+            function() { return s.setAsync('x', new Float32Array([1,2,3,4])); },
+            function() { return s.setAsync('z', "Hello, world!"); },
+            function() { return s.evalAsync('z'); },
+            function() { return s.evalAsync('print(c(z))'); },
+            function() { return s.evalAsync('cat(z)'); },
+            function() { return s.evalAsync('print(z)'); },
+            function() { return s.setAsync('x', {a:1, b:2}); },
+            function() { return s.evalAsync('x'); },
+            function() { return s.setAsync('x', true); },
+            function() { return s.evalAsync('x').then(expect_equals(true)); },
+            function() { return s.setAsync('a', 1); },
+            function() { return s.setAsync('a', (new Uint8Array([1,2,3,4,5,6,7,8])).buffer); },
+            function() { return s.evalAsync('print(a)'); },
+            function() { return s.evalAsync('attr(Orange, "formula")'); }, // tests XT_UNKNOWN
+            function() { return s.evalAsync('rnorm(3000000)'); }, // tests XT_LARGE
+            function() { return s.setAsync('a', new Float64Array(2500000)); },
+            function() { return s.evalAsync('mean(a)').then(expect_equals(0)); },
+            function() { return s.setAsync('a', range(2500000)); },
+            function() { return s.evalAsync('a[1]').then(expect_equals(1)); },
+            function() { return s.evalAsync('a[100]').then(expect_equals(100)); },
+            function() { return s.evalAsync('a[1000]').then(expect_equals(1000)); },
+            function() { return s.evalAsync('a[2499999]').then(expect_equals(2499999)); },
+            function() {
                 console.log("All run!");
                 process.exit(0);
             }
-        ]);
+        ];
+        sequence_(lst);
     }
 }
 
@@ -90,14 +81,11 @@ function no_ocap_tests()
 
 function sequence_(lst)
 {
-    function do_it(i) {
-        if (i === lst.length)
-            return;
-        lst[i](function() { 
-            do_it(i+1);
-        });
+    var promise = lst[0]();
+    for (var i=1; i<lst.length; ++i) {
+        promise = promise.then(lst[i]);
     }
-    do_it(0);
+    return promise;
 }
 
 //////////////////////////////////////////////////////////////////////////////
