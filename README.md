@@ -17,7 +17,7 @@ equivalent of a *chainsaw*: there are ways to use it safely,
 Start Rserve in web-sockets mode:
 
     $ cd rserve-js/tests
-	$ r_files/start_no_ocaps
+	$ r_files/start_no_ocap
 	
 Run some javascript that connects to [port 8081](https://github.com/cscheid/rserve-js/blob/master/tests/r_files/no_oc.conf):
 
@@ -36,7 +36,7 @@ Run some javascript that connects to [port 8081](https://github.com/cscheid/rser
 	> r.running
     true
     
-	> r.eval('rnorm(10)', function(a) { console.log(a); })
+	> r.eval('rnorm(10)', function(err, a) { if (err === null) console.log(a); })
     undefined
     
 	{ type: 'sexp',
@@ -71,7 +71,7 @@ Run some javascript that connects to [port 8081](https://github.com/cscheid/rser
 trusted networks!*  `eval`, in that example above, is truly `eval`:
 
     > // RUNNING WITH SCISSORS
-    > r.eval('readLines(pipe("ls /etc"))', function(x) { console.log(x); })
+    > r.eval('readLines(pipe("ls /etc"))', function(err, x) { if (err === null) console.log(x); })
     
       { type: 'sexp',
       value:
