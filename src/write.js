@@ -78,10 +78,14 @@ Rserve.determine_size = function(value, forced_type)
     case Rserve.Rsrv.XT_ARRAY_STR:
         if (_.isArray(value))
             return final_size(_.reduce(value, function(memo, str) {
-                return memo + str.length + 1;
+		// FIXME: this is a bit silly, since we'll be re-encoding this twice: once for the size and second time for the content
+		var utf8 = unescape(encodeURIComponent(str));
+                return memo + utf8.length + 1;
             }, 0));
-        else
-            return final_size(value.length + 1);
+        else {
+	    var utf8 = unescape(encodeURIComponent(value));
+            return final_size(utf8.length + 1);
+	}
     case Rserve.Rsrv.XT_ARRAY_DOUBLE:
         if (_.isNumber(value))
             return final_size(8);
@@ -152,14 +156,16 @@ Rserve.write_into_view = function(value, array_buffer_view, forced_type, convert
         if (_.isArray(value)) {
             var offset = payload_start;
             _.each(value, function(el) {
-                for (var i=0; i<el.length; ++i, ++offset)
-                    write_view.setUint8(offset, el.charCodeAt(i));
+		var utf8 = unescape(encodeURIComponent(el));
+                for (var i=0; i<utf8.length; ++i, ++offset)
+                    write_view.setUint8(offset, utf8.charCodeAt(i));
                 write_view.setUint8(offset++, 0);
             });
         } else {
-            for (i=0; i<value.length; ++i)
-                write_view.setUint8(payload_start + i, value.charCodeAt(i));
-            write_view.setUint8(payload_start + value.length, 0);
+	    var utf8 = unescape(encodeURIComponent(value));
+            for (i=0; i<utf8.length; ++i)
+                write_view.setUint8(payload_start + i, utf8.charCodeAt(i));
+            write_view.setUint8(payload_start + utf8.length, 0);
         }
         break;
     case Rserve.Rsrv.XT_ARRAY_DOUBLE:

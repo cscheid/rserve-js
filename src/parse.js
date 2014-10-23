@@ -50,7 +50,7 @@ function read(m)
                 var c = this.data_view.getInt8(this.offset++);
                 if (c) result = result + String.fromCharCode(c);
             }
-            return result;
+            return decodeURIComponent(escape(result)); // UTF-8 to UTF-16
         },
         read_stream: function(length) {
             var old_offset = this.offset;
@@ -84,6 +84,7 @@ function read(m)
             var current_str = "";
             for (var i=0; i<a.length; ++i)
                 if (a[i] === 0) {
+		    current_str = decodeURIComponent(escape(current_str));
                     result.push(current_str);
                     current_str = "";
                 } else {
