@@ -10,6 +10,10 @@ Rserve.Rsrv = {
     CMD_STAT: function(x) { return (x >> 24) & 127; },
     SET_STAT: function(x, s) { return x | ((s & 127) << 24); },
 
+    IS_OOB_SEND: function(x) { return (x & 0xffff000) === Rserve.Rsrv.OOB_SEND; },
+    IS_OOB_MSG: function(x) { return (x & 0xffff000) === Rserve.Rsrv.OOB_MSG; },
+    OOB_USR_CODE: function(x) { return x & 0xfff; },
+
     CMD_RESP           : 0x10000,
     RESP_OK            : 0x10000 | 0x0001,
     RESP_ERR           : 0x10000 | 0x0002,

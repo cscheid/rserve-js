@@ -1,8 +1,9 @@
 (function() {
 
-function _encode_command(command, buffer) {
+function _encode_command(command, buffer, msg_id) {
     if (!_.isArray(buffer))
         buffer = [buffer];
+    if (!msg_id) msg_id = 0;
     var length = _.reduce(buffer, 
                           function(memo, val) {
                               return memo + val.byteLength;
@@ -11,7 +12,7 @@ function _encode_command(command, buffer) {
         view = new Rserve.EndianAwareDataView(big_buffer);
     view.setInt32(0, command);
     view.setInt32(4, length);
-    view.setInt32(8, 0);
+    view.setInt32(8, msg_id);
     view.setInt32(12, 0);
     var offset = 16;
     _.each(buffer, function(b) {
@@ -158,41 +159,43 @@ Rserve.create = function(opts) {
             return;
         }
         var v = Rserve.parse_websocket_frame(msg.data);
+        var msg_id = v.header[2], cmd = v.header[0] & 0xffffff;
         if (!v.ok) {
             result_callback([v.message, v.status_code], undefined);
             // handle_error(v.message, v.status_code);
-        } else if (v.header[0] === Rserve.Rsrv.RESP_OK) {
+        } else if (cmd === Rserve.Rsrv.RESP_OK) {
             result_callback(null, v.payload);
-        } else if (v.header[0] === Rserve.Rsrv.OOB_SEND) {
+        } else if (Rserve.Rsrv.IS_OOB_SEND(cmd)) {
             opts.on_data && opts.on_data(v.payload);
-        } else if (v.header[0] === Rserve.Rsrv.OOB_MSG) {
+        } else if (Rserve.Rsrv.IS_OOB_MSG(cmd)) {
+            // use (OOB_USR_CODE(v.header[0]) > 255) to identify sub-process MSGs
             if (result.ocap_mode) {
                 var p;
                 try {
                     p = Rserve.wrap_all_ocaps(result, v.payload); // .value.json(result.resolve_hash);
                 } catch (e) {
-                    _send_cmd_now(Rserve.Rsrv.RESP_ERR | Rserve.Rsrv.OOB_MSG, 
-                                  _encode_string(String(e)));
+                    _send_cmd_now(Rserve.Rsrv.RESP_ERR | cmd,
+                                  _encode_string(String(e)), msg_id);
                     return;
                 }
                 if (!_.isFunction(p[0])) {
-                    _send_cmd_now(Rserve.Rsrv.RESP_ERR | Rserve.Rsrv.OOB_MSG, 
-                                  _encode_string("OOB Messages on ocap-mode must be javascript function calls"));
+                    _send_cmd_now(Rserve.Rsrv.RESP_ERR | cmd,
+                                  _encode_string("OOB Messages on ocap-mode must be javascript function calls"), msg_id);
                     return;
                 }
                 var captured_function = p[0], params = p.slice(1);
                 params.push(function(err, result) {
                     if (err) {
-                        _send_cmd_now(Rserve.Rsrv.RESP_ERR | Rserve.Rsrv.OOB_MSG, _encode_value(err));
+                        _send_cmd_now(Rserve.Rsrv.RESP_ERR | cmd, _encode_value(err), msg_id);
                     } else {
-                        _send_cmd_now(Rserve.Rsrv.OOB_MSG, _encode_value(result));
+                        _send_cmd_now(cmd, _encode_value(result), msg_id);
                     }
                 });
                 captured_function.apply(undefined, params);
             } else {
                 if (_.isUndefined(opts.on_oob_message)) {
-                    _send_cmd_now(Rserve.Rsrv.RESP_ERR | Rserve.Rsrv.OOB_MSG, 
-                                  _encode_string("No handler installed"));
+                    _send_cmd_now(Rserve.Rsrv.RESP_ERR | cmd, 
+                                  _encode_string("No handler installed"), msg_id);
                 } else {
                     in_oob_message = true;
                     opts.on_oob_message(v.payload, function(message, error) {
@@ -201,9 +204,9 @@ Rserve.create = function(opts) {
                             return;
                         }
                         in_oob_message = false;
-                        var header = Rserve.Rsrv.OOB_MSG | 
+                        var header = cmd |
                             (error ? Rserve.Rsrv.RESP_ERR : Rserve.Rsrv.RESP_OK);
-                        _send_cmd_now(header, _encode_string(message));
+                        _send_cmd_now(header, _encode_string(message), msg_id);
                         bump_queue();
                     });
                 }
@@ -213,8 +216,8 @@ Rserve.create = function(opts) {
         }
     };
 
-    function _send_cmd_now(command, buffer) {
-        var big_buffer = _encode_command(command, buffer);
+    function _send_cmd_now(command, buffer, msg_id) {
+        var big_buffer = _encode_command(command, buffer, msg_id);
         if (opts.debug)
             opts.debug.message_out && opts.debug.message_out(big_buffer[0], command);
         socket.send(big_buffer);
@@ -303,6 +306,7 @@ Rserve.create = function(opts) {
             }
             var params = [str];
             params.push.apply(params, values);
+            // NOTE: use (str.charCodeAt(0) == 64) to distinguis ctrl/compute
             _cmd(Rserve.Rsrv.CMD_OCcall, _encode_value(params, Rserve.Rsrv.XT_LANG_NOTAG),
                  k,
                  "");
