@@ -84,7 +84,7 @@ function read(m)
             var current_str = "";
             for (var i=0; i<a.length; ++i)
                 if (a[i] === 0) {
-		    current_str = decodeURIComponent(escape(current_str));
+                    current_str = decodeURIComponent(escape(current_str));
                     result.push(current_str);
                     current_str = "";
                 } else {
