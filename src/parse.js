@@ -215,7 +215,7 @@ function parse(msg)
     var resp = header[0] & 16777215, status_code = header[0] >> 24;
     result.header = [resp, status_code];
 
-    if (result.header[0] === Rserve.Rsrv.RESP_ERR) {
+    if (resp === Rserve.Rsrv.RESP_ERR) {
         result.ok = false;
         result.status_code = status_code;
         result.message = "ERROR FROM R SERVER: " + (Rserve.Rsrv.status_codes[status_code] || 
@@ -226,9 +226,9 @@ function parse(msg)
         return result;
     }
 
-    if (!_.contains([Rserve.Rsrv.RESP_OK, Rserve.Rsrv.OOB_SEND, Rserve.Rsrv.OOB_MSG], result.header[0])) {
+    if (!( resp === Rserve.Rsrv.RESP_OK || Rserve.Rsrv.IS_OOB_SEND(resp) || Rserve.Rsrv.IS_OOB_MSG(resp))) {
         result.ok = false;
-        result.message = "Unexpected response from RServe: " + result.header[0] + " status: " + Rserve.Rsrv.status_codes[status_code];
+        result.message = "Unexpected response from Rserve: " + resp + " status: " + Rserve.Rsrv.status_codes[status_code];
         return result;
     }
     try {
