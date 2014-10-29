@@ -160,15 +160,28 @@ Rserve.create = function(opts) {
         }
         var v = Rserve.parse_websocket_frame(msg.data);
         var msg_id = v.header[2], cmd = v.header[0] & 0xffffff;
+        var queue = _.find(queues, function(queue) { return queue.msg_id == msg_id; });
+        // console.log("onmessage, queue=" + (queue ? queue.name : "<unknown>") + ", ok= " + v.ok+ ", cmd=" + cmd +", msg_id="+ msg_id);
+        // FIXME: in theory we should not need a fallback, but in case we miss some
+        // odd edge case, we revert to the old behavior.
+        // The way things work, the queue will be undefined only for OOB messages:
+        // SEND doesn't need reply, so it's irrelevant, MSG is handled separately below and
+        // enforces the right queue.
+        if (!queue) queue = queues[0];
         if (!v.ok) {
-            result_callback([v.message, v.status_code], undefined);
+            queue.result_callback([v.message, v.status_code], undefined);
             // handle_error(v.message, v.status_code);
         } else if (cmd === Rserve.Rsrv.RESP_OK) {
-            result_callback(null, v.payload);
+            queue.result_callback(null, v.payload);
         } else if (Rserve.Rsrv.IS_OOB_SEND(cmd)) {
             opts.on_data && opts.on_data(v.payload);
         } else if (Rserve.Rsrv.IS_OOB_MSG(cmd)) {
-            // use (OOB_USR_CODE(v.header[0]) > 255) to identify sub-process MSGs
+            // OOB MSG may use random msg_id, so we have to use the USR_CODE to detect the right queue
+            // FIXME: we may want to consider adjusting the protocol specs to require msg_id
+            //        to be retained by OOB based on the outer OCcall message (thus inheriting
+            //        the msg_id), but curretnly it's not mandated.
+            queue = (Rserve.Rsrv.OOB_USR_CODE(cmd) > 255) ? compute_queue : ctrl_queue;
+            // console.log("OOB MSG result on queue "+ queue.name);
             if (result.ocap_mode) {
                 var p;
                 try {
@@ -197,17 +210,17 @@ Rserve.create = function(opts) {
                     _send_cmd_now(Rserve.Rsrv.RESP_ERR | cmd, 
                                   _encode_string("No handler installed"), msg_id);
                 } else {
-                    in_oob_message = true;
+                    queue.in_oob_message = true;
                     opts.on_oob_message(v.payload, function(message, error) {
-                        if (!in_oob_message) {
+                        if (!queue.in_oob_message) {
                             handle_error("Don't call oob_message_handler more than once.");
                             return;
                         }
-                        in_oob_message = false;
+                        queue.in_oob_message = false;
                         var header = cmd |
                             (error ? Rserve.Rsrv.RESP_ERR : Rserve.Rsrv.RESP_OK);
                         _send_cmd_now(header, _encode_string(message), msg_id);
-                        bump_queue();
+                        bump_queues();
                     });
                 }
             }
@@ -224,35 +237,65 @@ Rserve.create = function(opts) {
         return big_buffer;
     };
 
-    var queue = [];
-    var in_oob_message = false;
-    var awaiting_result = false;
-    var result_callback;
-    function bump_queue() {
-        if (result.closed && queue.length) {
-            handle_error("Cannot send messages on a closed socket!", -1);
-        } else if (!awaiting_result && !in_oob_message && queue.length) {
-            var lst = queue.shift();
-            result_callback = lst[1];
-            awaiting_result = true;
-            if (opts.debug)
-                opts.debug.message_out && opts.debug.message_out(lst[0], lst[2]);
-            socket.send(lst[0]);
-        }
-    }
-    function enqueue(buffer, k, command) {
-        queue.push([buffer, function(error, result) {
-            awaiting_result = false;
-            bump_queue();
-            k(error, result);
-        }, command]);
-        bump_queue();
+    var ctrl_queue = {
+        queue: [],
+        in_oob_message: false,
+        awaiting_result: false,
+        msg_id: 0,
+        name: "control"
     };
 
-    function _cmd(command, buffer, k, string) {
+    var compute_queue = {
+        queue: [],
+        in_oob_message: false,
+        awaiting_result: false,
+        msg_id: 1,
+        name: "compute"
+    };
+
+    // the order matters - the first queue is used if the association cannot be determined from the msg_id/cmd
+    var queues = [ ctrl_queue, compute_queue ];
+
+    function queue_can_send(queue) { return !queue.in_oob_message && !queue.awaiting_result && queue.queue.length; }
+
+    function bump_queues() {
+        var available = _.filter(queues, queue_can_send);
+        // nothing in the queues (or all busy)? get out
+        if (!available.length) return;
+        if (result.closed) {
+            handle_error("Cannot send messages on a closed socket!", -1);
+        } else {
+            var queue = _.sortBy(available, function(queue) { return queue.queue[0].timestamp; })[0];
+            var lst = queue.queue.shift();
+            queue.result_callback = lst.callback;
+            queue.awaiting_result = true;
+            if (opts.debug)
+                opts.debug.message_out && opts.debug.message_out(lst.buffer, lst.command);
+            socket.send(lst.buffer);
+        }
+    }
+
+    function enqueue(buffer, k, command, queue) {
+        queue.queue.push({
+            buffer: buffer,
+          callback: function(error, result) {
+              queue.awaiting_result = false;
+              bump_queues();
+              k(error, result);
+          },
+            command: command,
+            timestamp: Date.now()
+        });
+        bump_queues();
+    };
+
+    function _cmd(command, buffer, k, string, queue) {
+        // default to the first queue - only used in non-OCAP mode which doesn't support multiple queues
+        if (!queue) queue = queues[0];
+
         k = k || function() {};
-        var big_buffer = _encode_command(command, buffer);
-        return enqueue(big_buffer, k, string);
+        var big_buffer = _encode_command(command, buffer, queue.msg_id);
+        return enqueue(big_buffer, k, string, queue);
     };
 
     result = {
@@ -306,10 +349,10 @@ Rserve.create = function(opts) {
             }
             var params = [str];
             params.push.apply(params, values);
-            // NOTE: use (str.charCodeAt(0) == 64) to distinguis ctrl/compute
+            // determine the proper queue from the OCAP prefix
+            var queue = (str.charCodeAt(0) == 64) ? compute_queue : ctrl_queue;
             _cmd(Rserve.Rsrv.CMD_OCcall, _encode_value(params, Rserve.Rsrv.XT_LANG_NOTAG),
-                 k,
-                 "");
+                 k, "", queue);
         },
 
         wrap_ocap: function(ocap) {
