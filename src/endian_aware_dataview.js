@@ -104,7 +104,7 @@
             view: function(new_offset, new_length) {
                 var ofs = this.offset + new_offset;
                 if(ofs + new_length > this.buffer.byteLength)
-                    throw new Error("Rserve.my_ArrayBufferView.view: bounds error: sgize: " +
+                    throw new Error("Rserve.my_ArrayBufferView.view: bounds error: size: " +
                                     this.buffer.byteLength + " offset: " + ofs + " length: " + new_length);
                 return Rserve.my_ArrayBufferView(
                     this.buffer, ofs, new_length);
