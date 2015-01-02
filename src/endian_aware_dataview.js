@@ -102,12 +102,14 @@
                     this.buffer, this.offset + offset, this.buffer.byteLength);
             },
             view: function(new_offset, new_length) {
-                // FIXME Needs bounds checking
+                var ofs = this.offset + new_offset;
+                if(ofs + new_length > this.buffer.byteLength)
+                    throw new Error("Rserve.my_ArrayBufferView.view: bounds error: sgize: " +
+                                    this.buffer.byteLength + " offset: " + ofs + " length: " + new_length);
                 return Rserve.my_ArrayBufferView(
-                    this.buffer, this.offset + new_offset, new_length);
+                    this.buffer, ofs, new_length);
             }
         };
     };
 
 })(this);
-
