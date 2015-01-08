@@ -159,6 +159,8 @@ Rserve.create = function(opts) {
             return;
         }
         var v = Rserve.parse_websocket_frame(msg.data);
+        if(v.incomplete)
+            return;
         var msg_id = v.header[2], cmd = v.header[0] & 0xffffff;
         var queue = _.find(queues, function(queue) { return queue.msg_id == msg_id; });
         // console.log("onmessage, queue=" + (queue ? queue.name : "<unknown>") + ", ok= " + v.ok+ ", cmd=" + cmd +", msg_id="+ msg_id);
