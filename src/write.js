@@ -133,7 +133,7 @@ Rserve.write_into_view = function(value, array_buffer_view, forced_type, convert
     if (is_large) {
         payload_start = 8;
         write_view.setInt32(0, t + ((size - 8) << 8));
-        write_view.setInt32(4, (size - 8) >> 24);
+        write_view.setInt32(4, (size - 8) >>> 24);
     } else { 
         payload_start = 4;
         write_view.setInt32(0, t + ((size - 4) << 8));

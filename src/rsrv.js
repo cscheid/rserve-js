@@ -3,11 +3,11 @@
 
 Rserve.Rsrv = {
     PAR_TYPE: function(x) { return x & 255; },
-    PAR_LEN: function(x) { return x >> 8; },
-    PAR_LENGTH: function(x) { return x >> 8; },
+    PAR_LEN: function(x) { return x >>> 8; },
+    PAR_LENGTH: function(x) { return x >>> 8; },
     par_parse: function(x) { return [Rserve.Rsrv.PAR_TYPE(x), Rserve.Rsrv.PAR_LEN(x)]; },
     SET_PAR: function(ty, len) { return ((len & 0xffffff) << 8 | (ty & 255)); },
-    CMD_STAT: function(x) { return (x >> 24) & 127; },
+    CMD_STAT: function(x) { return (x >>> 24) & 127; },
     SET_STAT: function(x, s) { return x | ((s & 127) << 24); },
 
     IS_OOB_SEND: function(x) { return (x & 0xffff000) === Rserve.Rsrv.OOB_SEND; },

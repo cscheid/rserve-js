@@ -90,7 +90,7 @@ Rserve.create = function(opts) {
             // can't left shift value here because value will have bit 32 set and become signed..
             view.data_view().setInt32(0, Rserve.Rsrv.DT_SEXP + ((sz & 16777215) * Math.pow(2, 8)) + Rserve.Rsrv.DT_LARGE);
             // but *can* right shift because we assume sz is less than 2^31 or so to begin with
-            view.data_view().setInt32(4, sz >> 24);
+            view.data_view().setInt32(4, sz >>> 24);
             Rserve.write_into_view(value, view.skip(8), forced_type, convert_to_hash);
             return buffer;
         } else {
