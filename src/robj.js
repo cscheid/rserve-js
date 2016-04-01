@@ -55,20 +55,20 @@ Rserve.Robj = {
             if (_.isUndefined(this.attributes)) {
                 return values;
             } else {
-		// FIXME: there is no reason why names should be the first or only
-		//        attribute, so the code should really look
-		//        for "names" and not cry if it doesn't exist
+                // FIXME: there is no reason why names should be the first or only
+                //        attribute, so the code should really look
+                //        for "names" and not cry if it doesn't exist
                 if (this.attributes.value[0].name == "names") {
                     var keys   = this.attributes.value[0].value.value;
                     var result = {};
                     _.each(keys, function(key, i) {
-			result[key] = values[i];
+                        result[key] = values[i];
                     });
                     return result;
-		}
-		// FIXME: how can we pass other important attributes
-		//        like "class" ?
-		return values;
+                }
+                // FIXME: how can we pass other important attributes
+                //        like "class" ?
+                return values;
             }
         }
     }),
@@ -84,11 +84,11 @@ Rserve.Robj = {
             if (_.isUndefined(this.attributes)) {
                 return values;
             } else {
-		// FIXME: lang doens't have "names" attribute since
-		//        names are sent as tags (langs are pairlists)
-		//        so this seems superfluous (it is dangerous
-		//        if lang ever had attributes since there is
-		//        no reason to fail in that case)
+                // FIXME: lang doens't have "names" attribute since
+                //        names are sent as tags (langs are pairlists)
+                //        so this seems superfluous (it is dangerous
+                //        if lang ever had attributes since there is
+                //        no reason to fail in that case)
                 if(this.attributes.value[0].name!="names")
                     throw "expected names here";
                 var keys   = this.attributes.value[0].value.value;

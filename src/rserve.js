@@ -324,8 +324,8 @@ Rserve.create = function(opts) {
         closeFile: function(k) {
             _cmd(Rserve.Rsrv.CMD_closeFile, new ArrayBuffer(0), k, "");
         },
-        set: function(key, value, k) {
-            _cmd(Rserve.Rsrv.CMD_setSEXP, [_encode_string(key), _encode_value(value)], k, "");
+        set: function(key, value, k, forced_type) {
+            _cmd(Rserve.Rsrv.CMD_setSEXP, [_encode_string(key), _encode_value(value, forced_type)], k, "");
         }, 
 
         //////////////////////////////////////////////////////////////////////
