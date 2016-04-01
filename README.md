@@ -17,11 +17,11 @@ equivalent of a *chainsaw*: there are ways to use it safely,
 Start Rserve in web-sockets mode:
 
     $ cd rserve-js/tests
-	$ r_files/start_no_ocap
-	
+    $ r_files/start_no_ocap
+
 Run some javascript that connects to [port 8081](https://github.com/cscheid/rserve-js/blob/master/tests/r_files/no_oc.conf):
 
-	$ node
+    $ node
 
     > r = require('../main.js')
     { Robj:
@@ -108,3 +108,13 @@ can return other capabilities, and so a system can be designed to
 provide, by default, a very limited set of features, which can be
 increased when appropriate.
 
+
+## Building on Windows
+
+Download the latest
+[GNU Make for Windows](http://gnuwin32.sourceforge.net/packages/make.htm)
+Binaries and Dependencies Zips and extract the contents in their
+respective bin/ folders to the directory containing the Makefile.
+Open up cmd.exe, navigate to that same directory, and execute:
+
+    > make.exe all
