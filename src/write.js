@@ -29,12 +29,14 @@ Rserve.type_id = function(value)
     if (!_.isUndefined(value.byteLength) && !_.isUndefined(value.slice))
         return Rserve.Rsrv.XT_RAW;
 
-    // lists of strings (important for tags)
-    if (_.isArray(value) && _.all(value, function(el) { return typeof el === 'string'; }))
-        return Rserve.Rsrv.XT_ARRAY_STR;
-
-    if (_.isArray(value) && _.all(value, function(el) { return typeof el === 'boolean'; }))
+    // before coercion, NA is R is a logical, so if entire array is null, then
+    // translate it into a logical vector accordingly
+    if (_.isArray(value) && _.all(value, function(el) { return _.isNull(el) || _.isBoolean(el); }))
         return Rserve.Rsrv.XT_ARRAY_BOOL;
+
+    // lists of strings (important for tags)
+    if (_.isArray(value) && _.all(value, function(el) { return _.isNull(el) || _.isString(el); }))
+        return Rserve.Rsrv.XT_ARRAY_STR;
 
     // arbitrary lists
     if (_.isArray(value))
@@ -71,23 +73,31 @@ Rserve.determine_size = function(value, forced_type)
     case Rserve.Rsrv.XT_NULL:
         return final_size(0);
     case Rserve.Rsrv.XT_ARRAY_BOOL:
-        if (_.isBoolean(value))
+        if (_.isNull(value) || _.isBoolean(value))
             return final_size(8);
         else
             return final_size((value.length + 7) & ~3);
     case Rserve.Rsrv.XT_ARRAY_STR:
         if (_.isArray(value))
             return final_size(_.reduce(value, function(memo, str) {
-		// FIXME: this is a bit silly, since we'll be re-encoding this twice: once for the size and second time for the content
-		var utf8 = unescape(encodeURIComponent(str));
+                // FIXME: this is a bit silly, since we'll be re-encoding this twice: once for the size and second time for the content
+                var utf8;
+                if (_.isNull(str))
+                    utf8 = String.fromCharCode(Rserve.Rsrv.STRING_NA);
+                else
+                    utf8 = unescape(encodeURIComponent(str));
                 return memo + utf8.length + 1;
             }, 0));
         else {
-	    var utf8 = unescape(encodeURIComponent(value));
+            var utf8;
+            if (_.isNull(value))
+                utf8 = String.fromCharCode(Rserve.Rsrv.STRING_NA);
+            else
+                utf8 = unescape(encodeURIComponent(value));
             return final_size(utf8.length + 1);
-	}
+        }
     case Rserve.Rsrv.XT_ARRAY_DOUBLE:
-        if (_.isNumber(value))
+        if (_.isNull(value) || _.isNumber(value))
             return final_size(8);
         else
             return final_size(8 * value.length);
@@ -143,37 +153,52 @@ Rserve.write_into_view = function(value, array_buffer_view, forced_type, convert
     case Rserve.Rsrv.XT_NULL:
         break;
     case Rserve.Rsrv.XT_ARRAY_BOOL:
-        if (_.isBoolean(value)) {
+        if (_.isNull(value)) {
             write_view.setInt32(payload_start, 1);
-            write_view.setInt8(payload_start + 4, value ? 1 : 0);
+            write_view.setInt8(payload_start + 4, Rserve.Rsrv.BOOL_NA);
+        } else if (_.isBoolean(value)) {
+            write_view.setInt32(payload_start, 1);
+            write_view.setInt8(payload_start + 4, value ? Rserve.Rsrv.BOOL_TRUE : Rserve.Rsrv.BOOL_FALSE);
         } else {
             write_view.setInt32(payload_start, value.length);
             for (i=0; i<value.length; ++i)
-                write_view.setInt8(payload_start + 4 + i, value[i] ? 1 : 0);
+                write_view.setInt8(payload_start + 4 + i, !_.isNull(value[i]) ? value[i] ? Rserve.Rsrv.BOOL_TRUE : Rserve.Rsrv.BOOL_FALSE : Rserve.Rsrv.BOOL_NA);
         }
         break;
     case Rserve.Rsrv.XT_ARRAY_STR:
-        if (_.isArray(value)) {
+        if (_.isNull(value)) {
+            write_view.setUint8(payload_start, Rserv.Rsrv.STRING_NA);
+            write_view.setUint8(payload_start + 1, 0);
+        } else if (_.isArray(value)) {
             var offset = payload_start;
             _.each(value, function(el) {
-		var utf8 = unescape(encodeURIComponent(el));
-                for (var i=0; i<utf8.length; ++i, ++offset)
-                    write_view.setUint8(offset, utf8.charCodeAt(i));
+                if (_.isNull(el)) {
+                    write_view.setUint8(offset++, Rserv.Rsrv.STRING_NA);
+                } else {
+                    var utf8 = unescape(encodeURIComponent(el));
+                    for (var i=0; i<utf8.length; ++i, ++offset)
+                        write_view.setUint8(offset, utf8.charCodeAt(i));
+                }
                 write_view.setUint8(offset++, 0);
             });
         } else {
-	    var utf8 = unescape(encodeURIComponent(value));
+            var utf8 = unescape(encodeURIComponent(value));
             for (i=0; i<utf8.length; ++i)
                 write_view.setUint8(payload_start + i, utf8.charCodeAt(i));
             write_view.setUint8(payload_start + utf8.length, 0);
         }
         break;
     case Rserve.Rsrv.XT_ARRAY_DOUBLE:
-        if (_.isNumber(value))
+        if (_.isNull(value)) {
+            write_view.setFloat64(payload_start, Rserv.Rsrv.DOUBLE_NA);
+        } else if (_.isNumber(value))
             write_view.setFloat64(payload_start, value);
         else {
             for (i=0; i<value.length; ++i)
-                write_view.setFloat64(payload_start + 8 * i, value[i]);
+                if (_.isNull(value[i]))
+                    write_view.setFloat64(payload_start + 8 * i, Rserv.Rsrv.DOUBLE_NA);
+                else
+                    write_view.setFloat64(payload_start + 8 * i, value[i]);
         }
         break;
     case Rserve.Rsrv.XT_RAW:

@@ -60,12 +60,16 @@ function read(m)
         read_int_vector: function(length) {
             var old_offset = this.offset;
             this.offset += length;
-            return this.msg.make(Int32Array, old_offset, length);
+            return _.map(this.msg.make(Int32Array, old_offset, length), function(v) {
+                return v !== Rserve.Rsrv.INTEGER_NA ? v : null;
+            });
         },
         read_double_vector: function(length) {
             var old_offset = this.offset;
             this.offset += length;
-            return this.msg.make(Float64Array, old_offset, length);
+            return _.map(this.msg.make(Float64Array, old_offset, length), function(v) {
+                return !Rserve.Rsrv.IS_DOUBLE_NA(v) ? v : null;
+            });
         },
 
         //////////////////////////////////////////////////////////////////////
@@ -84,7 +88,10 @@ function read(m)
             var current_str = "";
             for (var i=0; i<a.length; ++i)
                 if (a[i] === 0) {
-                    current_str = decodeURIComponent(escape(current_str));
+                    if (current_str.length !== 1 || current_str.charCodeAt(0) !== Rserve.Rsrv.STRING_NA)
+                        current_str = decodeURIComponent(escape(current_str));
+                    else
+                        current_str = null;
                     result.push(current_str);
                     current_str = "";
                 } else {
@@ -96,7 +103,7 @@ function read(m)
             var l2 = this.read_int();
             var s = this.read_stream(length-4);
             var a = _.map(s.make(Uint8Array).subarray(0, l2), function(v) {
-                return v ? true : false;
+                return v !== Rserve.Rsrv.BOOL_NA ? v ? true : false : null;
             });
             return [Rserve.Robj.bool_array(a, attributes), length];
         },

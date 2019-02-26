@@ -1,6 +1,26 @@
 // Simple constants and functions are defined here,
 // in correspondence with Rserve's Rsrv.h
 
+function custom_nan(int32_words) {
+    // DataView.getFloat64() canonicalizes any NaNs with custom bit patterns, so
+    // instead use what is essentially a C union in JavaScript. Unfortunately,
+    // that means we have to deal with endianness.
+    var buf = new ArrayBuffer(8);
+    var intRep = new Int32Array(buf);
+    var floatRep = new Float64Array(buf);
+
+    // Server may be little endian.
+    intRep[0] = int32_words[1];
+    intRep[1] = int32_words[0];
+    if (isNaN(floatRep[0]))
+        return floatRep[0];
+
+    // Server may be big endian.
+    intRep[0] = int32_words[0];
+    intRep[1] = int32_words[1];
+    return floatRep[0];
+}
+
 Rserve.Rsrv = {
     PAR_TYPE: function(x) { return x & 255; },
     PAR_LEN: function(x) { return x >>> 8; },
@@ -112,10 +132,23 @@ Rserve.Rsrv = {
     BOOL_FALSE : 0,
     BOOL_NA    : 2,
 
+    // See Arith.h in R.
+    INTEGER_NA : (2147483647 + 1) | 0,
+    STRING_NA  : 0xff,
+    DOUBLE_NA  : custom_nan([ 0x7ff00000, 0x000007a2 ]),
+
     GET_XT: function(x) { return x & 63; },
     GET_DT: function(x) { return x & 63; },
     HAS_ATTR: function(x) { return (x & Rserve.Rsrv.XT_HAS_ATTR) > 0; },
     IS_LARGE: function(x) { return (x & Rserve.Rsrv.XT_LARGE) > 0; },
+    IS_DOUBLE_NA: function(x) {
+        var view = new DataView(new ArrayBuffer(16));
+        view.setFloat64(0, x);
+        view.setFloat64(8, Rserve.Rsrv.DOUBLE_NA);
+        // Any operations (not involving NaN) still produce NA, but they convert
+        // the signaling NaN to quiet NaN by toggling the highest mantissa bit.
+        return (view.getInt32(0) & ~0x00080000) === view.getInt32(8) && view.getInt32(4) === view.getInt32(12);
+    },
 
     // # FIXME A WHOLE LOT OF MACROS HERE WHICH ARE PROBABLY IMPORTANT
     // ##############################################################################
