@@ -57,6 +57,9 @@ Rserve.create = function(opts) {
     socket.binaryType = 'arraybuffer';
     var handle_error = opts.on_error || function(error) { throw new Rserve.RserveError(error, -1); };
     var received_handshake = false;
+    socket.onerror = function(event) {
+        handle_error(event.message);
+    };
 
     var result;
     var command_counter = 0;
