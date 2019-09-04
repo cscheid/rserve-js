@@ -1,3 +1,18 @@
+# Detect if we're running Windows
+ifeq ($(OS),Windows_NT)
+	# If so, set the file & folder deletion commands:
+	FixPath = $(subst /,\,$1)
+	Remove = CMD.EXE /C DEL /F
+	ReadFile = TYPE
+	WritePerm = ICACLS $1 /GRANT $(USERNAME):(W)
+else
+	# Otherwise, assume we're running *N*X:
+	FixPath = $1
+	Remove = rm -f
+	ReadFile = cat
+	WritePerm = chmod -w $1
+endif
+
 JS_COMPILER = ./node_modules/uglify-js/bin/uglifyjs
 
 all: rserve.js rserve.min.js main.js
@@ -27,27 +42,27 @@ rserve.js:					\
 	src/_end.js
 
 rserve.min.js: rserve.js Makefile
-	@rm -f $@
-	$(JS_COMPILER) < $< > $@
-	chmod -w $@
+	@$(Remove) $@
+	$(call FixPath, node $(JS_COMPILER)) < $< > $@
+	$(call WritePerm, $@)
 
 rserve.js: Makefile
-	echo $^
-	@rm -f $@
-	cat $(filter %.js,$^) > $@
+	@echo $^
+	@$(Remove) $@
+	$(ReadFile) $(call FixPath, $(filter %.js,$^)) > $@
 ifeq ($(CHECK),1) 
 	jshint $(filter %.js,$(filter-out lib/%.js,$(filter-out %/_begin.js,$(filter-out %/_end.js, $^))))
 endif
-	chmod -w $@
+	$(call WritePerm, $@)
 
 main.js: Makefile
-	echo $^
-	@rm -f $@
-	cat $(filter %.js,$^) > $@
+	@echo $^
+	@$(Remove) $@
+	$(ReadFile) $(call FixPath, $(filter %.js,$^)) > $@
 ifeq ($(CHECK),1) 
 	jshint $(filter %.js,$(filter-out lib/%.js,$(filter-out %/_begin.js,$(filter-out %/_end.js, $^))))
 endif
-	chmod -w $@
+	$(call WritePerm, $@)
 
 clean:
-	rm -f rserve.js rserve.min.js main.js
+	$(Remove) rserve.js rserve.min.js main.js
